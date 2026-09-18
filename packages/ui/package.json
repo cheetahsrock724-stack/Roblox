@@ -1,0 +1,12 @@
+{
+  "name": "@kinetiq/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./layout": "./src/layout.js",
+    "./widgets": "./src/widgets.js"
+  }
+}

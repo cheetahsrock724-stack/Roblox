@@ -74,8 +74,12 @@ function resolvePackagePath(rest) {
   if (!packageName) return rest;
   const tail = tailParts.join('/');
   const packageRoot = path.join(packagesDir, packageName);
-  if (!tail) return path.join(packageRoot, 'src', 'index.js');
-  if (tail === 'browser.js' || tail === 'index.js') return path.join(packageRoot, tail);
+  if (!tail || tail === 'index.js') return path.join(packageRoot, 'src', 'index.js');
+  if (tail === 'browser.js') {
+    // Packages may ship a dedicated browser entry at the package root; otherwise fall back to src.
+    const browserEntry = path.join(packageRoot, 'browser.js');
+    return fs.existsSync(browserEntry) ? browserEntry : path.join(packageRoot, 'src', 'index.js');
+  }
   if (tail.startsWith('src/')) return path.join(packageRoot, tail);
   return path.join(packageRoot, 'src', tail);
 }
@@ -141,6 +145,7 @@ export function serveStatic(req, res, { headers = {}, immutable = false } = {}) 
 export function renderHtmlTemplate(filePath) {
   const html = fs.readFileSync(filePath, 'utf8');
   return html
+    .replaceAll('<!--include:importmap-->', importMapSnippet())
     .replaceAll('{{platformName}}', platformConfig.platformName)
     .replaceAll('{{platformTagline}}', platformConfig.platformTagline)
     .replaceAll('{{currencyName}}', platformConfig.currencyName)
@@ -149,6 +154,22 @@ export function renderHtmlTemplate(filePath) {
     .replaceAll('{{primary}}', platformConfig.brandColors.primary)
     .replaceAll('{{accent}}', platformConfig.brandColors.accent)
     .replaceAll('{{surface}}', platformConfig.brandColors.surface);
+}
+
+/** Shared browser import map (engine/networking/scripting/three/wasmoon) used by every page. */
+function importMapSnippet() {
+  const snippet = path.join(publicDir, 'shared', 'importmap.html');
+  try {
+    return fs.readFileSync(snippet, 'utf8').replace(/<!--[\s\S]*?-->\s*/, '');
+  } catch {
+    return '';
+  }
+}
+
+/** Page files that need the Lua VM (the editor play-test and the client both do). */
+export function needsLuaRuntime(filePath) {
+  const name = path.basename(filePath);
+  return name === 'client.html' || name === 'editor.html';
 }
 
 export { MIME };

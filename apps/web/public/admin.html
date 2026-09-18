@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{platformName}} — Administration</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles/site.css" />
+    <link rel="stylesheet" href="/styles/admin.css" />
+    <script>
+      window.__PLATFORM__ = {
+        name: '{{platformName}}',
+        tagline: '{{platformTagline}}',
+        currencyName: '{{currencyName}}',
+        currencySymbol: '{{currencySymbol}}',
+        editorName: '{{editorName}}',
+        clientName: '{{clientName}}',
+        colors: { primary: '{{primary}}', accent: '{{accent}}', surface: '{{surface}}' },
+      };
+    </script>
+  </head>
+  <body class="admin">
+    <header class="topbar">
+      <a class="brand" href="/">{{platformName}} admin</a>
+      <nav class="nav" id="admin-nav"></nav>
+      <div class="user-area" id="user-area"></div>
+    </header>
+    <main id="view"><div class="loading">Checking permissions…</div></main>
+    <div id="toasts"></div>
+    <script type="module" src="/shared/api.js"></script>
+    <script type="module" src="/admin.js"></script>
+  </body>
+</html>

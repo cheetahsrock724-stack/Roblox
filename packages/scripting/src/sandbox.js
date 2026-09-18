@@ -19,11 +19,20 @@ import { ScriptInstance, ScriptPlayer, ScriptCharacter, buildRuntimeApi } from '
 
 let factoryPromise = null;
 
-/** A single shared factory keeps the wasm module compiled once per process. */
+/**
+ * A single shared factory keeps the wasm module compiled once per process.
+ *
+ * In the browser the Lua VM is loaded from the vendored wasmoon build, so the factory is created
+ * from `globalThis.wasmoon` with an explicit wasm URI instead of the bundler-resolved import.
+ */
 export function getLuaFactory() {
   if (!factoryPromise) {
     factoryPromise = (async () => {
-      const factory = new LuaFactory();
+      const scope = globalThis;
+      if (scope.__KINETIQ_LUA_FACTORY__) return scope.__KINETIQ_LUA_FACTORY__;
+      const WasmoonFactory = scope.wasmoon?.LuaFactory ?? LuaFactory;
+      const factory = new WasmoonFactory(scope.__KINETIQ_WASM_URI__ ?? undefined);
+      scope.__KINETIQ_LUA_FACTORY__ = factory;
       return factory;
     })();
   }

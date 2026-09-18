@@ -130,18 +130,48 @@ export const platformConfig = { ...runtime, ...branding, platform: branding };
 /** Alias kept for readability at call sites: `import { config } from '@kinetiq/shared'`. */
 export const config = platformConfig;
 
+/**
+ * Effective data directory.
+ *
+ * Read through `process.env` on every access (rather than only at import time) so tests and
+ * multi-instance deployments can point a process at an isolated directory after modules load.
+ */
+export function dataDir() {
+  return process.env.KINETIQ_DATA_DIR || config.dataDir;
+}
+
 /** Derived paths used across the platform. `files` entries are never created as directories. */
 export const paths = {
-  data: config.dataDir,
-  database: path.join(config.dataDir, 'platform.db'),
-  assets: path.join(config.dataDir, 'assets'),
-  releases: path.join(config.dataDir, 'releases'),
-  clientDist: path.join(config.dataDir, 'client-dist'),
-  launcherCache: path.join(config.dataDir, 'launcher-cache'),
-  logs: path.join(config.dataDir, 'logs'),
-  tmp: path.join(config.dataDir, 'tmp'),
-  uploads: path.join(config.dataDir, 'uploads'),
-  serverLogs: path.join(config.dataDir, 'logs', 'realms'),
+  get data() {
+    return dataDir();
+  },
+  get database() {
+    return path.join(dataDir(), 'platform.db');
+  },
+  get assets() {
+    return path.join(dataDir(), 'assets');
+  },
+  get releases() {
+    return path.join(dataDir(), 'releases');
+  },
+  get clientDist() {
+    return path.join(dataDir(), 'client-dist');
+  },
+  get launcherCache() {
+    return path.join(dataDir(), 'launcher-cache');
+  },
+  get logs() {
+    return path.join(dataDir(), 'logs');
+  },
+  get tmp() {
+    return path.join(dataDir(), 'tmp');
+  },
+  get uploads() {
+    return path.join(dataDir(), 'uploads');
+  },
+  get serverLogs() {
+    return path.join(dataDir(), 'logs', 'realms');
+  },
 };
 
 /** Keys in `paths` that are files rather than directories. */

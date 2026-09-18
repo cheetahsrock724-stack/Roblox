@@ -95,12 +95,15 @@ export function registerRoutes(router, deps) {
       recommended: recommended.rows.map((row) => db.games.toGameSummary(row)),
       popular: popular.rows.map((row) => db.games.toGameSummary(row)),
       trending: trending.rows.map((row) => db.games.toGameSummary(row)),
-      new: newest.rows.map((row) => db.games.toGameSummary(row)),
+      newest: newest.rows.map((row) => db.games.toGameSummary(row)),
       updated: updated.rows.map((row) => db.games.toGameSummary(row)),
       recentlyPlayed: recent.map((row) => db.games.toGameSummary(row)),
       friendsPlaying,
-      categories: GAME_CATEGORIES,
-      genres: db.games.genreCounts(),
+      // Rolled-up category counts for the "browse by category" row, ordered by popularity.
+      categories: (() => {
+        const counts = new Map(db.games.genreCounts().map((entry) => [entry.genre ?? entry.name, entry.count]));
+        return GAME_CATEGORIES.map((genre) => ({ genre, count: counts.get(genre) ?? 0 })).sort((a, b) => b.count - a.count);
+      })(),
       stats: db.games.platformStats(),
     });
   });
@@ -388,7 +391,11 @@ export function registerRoutes(router, deps) {
         max: platformConfig.games.maxMaxPlayers,
         fallback: platformConfig.games.defaultMaxPlayers,
       }),
-      isPublic: body.isPublic === undefined ? Boolean(game.is_public) : assertBoolean(body.isPublic, false),
+      // Publishing lists the game publicly by default; creators can opt out (unlisted) explicitly.
+      isPublic:
+        body.isPublic === undefined
+          ? mode === 'publish' || Boolean(game.is_public)
+          : assertBoolean(body.isPublic, false),
       allowPrivateServers: body.allowPrivateServers === undefined ? Boolean(game.allow_private_servers) : assertBoolean(body.allowPrivateServers, true),
       privateServerPrice: assertInt(body.privateServerPrice ?? game.private_server_price ?? 0, {
         field: 'privateServerPrice',

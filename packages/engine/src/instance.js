@@ -122,6 +122,10 @@ export class Instance {
     this.changed = new Signal(`changed:${this.id}`);
     this._destroyed = false;
     if (this._props.tags) delete this._props.tags;
+    // `parent` is structural rather than a plain property, so it is applied after construction.
+    const initialParent = properties.parent ?? null;
+    delete this._props.parent;
+    if (initialParent) this.setParent(initialParent);
   }
 
   get name() {
@@ -218,6 +222,9 @@ export class Instance {
       parent._children.push(this);
       parent.events.fire('childAdded', this);
     }
+    // Keep the world's instance index in sync no matter where the parent lives (services are not
+    // subscribed to `childAdded`, so registration happens here rather than only in World.add).
+    if (this.world && !this.world.instances.has(this.id)) this.world.registerTree(this);
     this.world?.events.fire('objectReparented', { instance: this, parent });
     return this._parent;
   }

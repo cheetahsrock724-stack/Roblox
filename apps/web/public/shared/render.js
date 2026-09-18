@@ -5,7 +5,7 @@
  * rigs. Geometry and materials are cached and colour-graded by material type so worlds look
  * consistent everywhere.
  */
-import * as THREE from '/vendor/three/three.module.js';
+import * as THREE from 'three';
 
 export const MATERIAL_LOOK = {
   smoothplastic: { roughness: 0.35, metalness: 0.05 },

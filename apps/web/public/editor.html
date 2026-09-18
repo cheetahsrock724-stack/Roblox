@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{platformName}} {{editorName}}</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles/editor.css" />
+    <script>
+      window.__PLATFORM__ = {
+        name: '{{platformName}}',
+        tagline: '{{platformTagline}}',
+        currencyName: '{{currencyName}}',
+        currencySymbol: '{{currencySymbol}}',
+        editorName: '{{editorName}}',
+        clientName: '{{clientName}}',
+        colors: { primary: '{{primary}}', accent: '{{accent}}', surface: '{{surface}}' },
+      };
+    </script>
+  </head>
+  <body class="editor" data-editor="{{editorName}}">
+    <div class="editor-shell">
+      <header class="editor-toolbar" id="toolbar"></header>
+
+      <aside class="editor-panel panel-left">
+        <div class="panel-tabs" id="left-tabs"></div>
+        <div class="panel-body" id="left-body"></div>
+      </aside>
+
+      <main class="editor-viewport" id="viewport">
+        <div class="viewport-overlay" id="viewport-overlay"></div>
+        <div class="playbar" id="playbar"></div>
+      </main>
+
+      <aside class="editor-panel panel-right">
+        <div class="panel-tabs" id="right-tabs"></div>
+        <div class="panel-body" id="right-body"></div>
+      </aside>
+
+      <section class="editor-panel editor-output" id="output-panel">
+        <div class="panel-tabs" id="bottom-tabs"></div>
+        <div class="panel-body" id="bottom-body"></div>
+      </section>
+    </div>
+
+    <div id="toasts"></div>
+
+    <script src="/vendor/wasmoon/index.js"></script>
+    <script>
+      window.__KINETIQ_WASM_URI__ = '/vendor/wasmoon/glue.wasm';
+    </script>
+    <!--include:importmap-->
+    <script type="module" src="/shared/api.js"></script>
+    <script type="module" src="/editor.js"></script>
+  </body>
+</html>

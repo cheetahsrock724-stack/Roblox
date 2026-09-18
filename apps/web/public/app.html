@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{platformName}} — Build worlds. Play together.</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles/site.css" />
+    <script>
+      window.__PLATFORM__ = {
+        name: '{{platformName}}',
+        tagline: '{{platformTagline}}',
+        currencyName: '{{currencyName}}',
+        currencySymbol: '{{currencySymbol}}',
+        editorName: '{{editorName}}',
+        clientName: '{{clientName}}',
+        colors: { primary: '{{primary}}', accent: '{{accent}}', surface: '{{surface}}' },
+      };
+    </script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#/home">{{platformName}}</a>
+      <nav class="nav" id="nav">
+        <a class="nav-link" data-route="home" href="#/home">Home</a>
+        <a class="nav-link" data-route="discover" href="#/discover">Discover</a>
+        <a class="nav-link" data-route="friends" href="#/friends">Friends</a>
+        <a class="nav-link" data-route="avatar" href="#/avatar">Avatar</a>
+        <a class="nav-link" data-route="inventory" href="#/inventory">Inventory</a>
+        <a class="nav-link" data-route="messages" href="#/messages">Messages</a>
+        <a class="nav-link" data-route="creator" href="#/creator">Create</a>
+        <a class="nav-link" data-route="docs" href="#/docs">Docs</a>
+      </nav>
+      <form class="topsearch" id="search-form"><input name="q" type="search" placeholder="Search…" /></form>
+      <div class="user-area" id="user-area"></div>
+    </header>
+    <main id="view"></main>
+    <div id="toasts"></div>
+    <footer class="footer">
+      <span>{{platformName}} — {{platformTagline}}</span>
+      <span class="dim">{{currencyName}} ({{currencySymbol}}) · support: {{supportEmail}}</span>
+    </footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

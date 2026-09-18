@@ -10,9 +10,10 @@
  *   /client?server=<realmId>&token=… — direct join (editor play-test, server list)
  *   /client?game=<id>&code=ABCD-EFGH — private server by join code
  */
-import * as THREE from '/vendor/three/three.module.js';
+import * as THREE from 'three';
 import { buildSceneFromWorld, createCharacterObject, animateCharacter, hexToNumber } from '/shared/render.js';
-import { ClientMessage, ServerMessage, encodeInput, decodeSnapshot, PROTOCOL_VERSION } from '/pkg/networking/index.js';
+import { ClientMessage, ServerMessage, encodeInput, decodeSnapshot, PROTOCOL_VERSION } from '@kinetiq/networking';
+import { createUiLayer } from '@kinetiq/ui';
 
 const params = new URLSearchParams(location.search);
 const platformInfo = window.__PLATFORM__ ?? {};
@@ -173,8 +174,16 @@ async function loadWorld(gameId, versionId = null) {
   scene.add(built.root);
   state.sceneRoot = built.root;
 
-  const lighting = built.lights.length ? null : null;
-  void lighting;
+  // World-authored screen UI (UI service) renders immediately, without waiting for the realm.
+  try {
+    const uiService = (release.world?.services ?? []).find((service) => service.name === 'UI' || service.className === 'UI');
+    if (uiService) {
+      const { flattenUiInstances } = await import('@kinetiq/ui');
+      ensureUiLayer().setInstances(flattenUiInstances(uiService));
+    }
+  } catch (error) {
+    logLine(`ui layer failed: ${error.message}`, 'warn');
+  }
   return release;
 }
 
@@ -212,6 +221,24 @@ function send(frame) {
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
 }
 
+/** Creates the screen-UI layer that renders world UI and forwards clicks to the server. */
+function ensureUiLayer() {
+  if (state.uiLayer) return state.uiLayer;
+  state.uiLayer = createUiLayer({
+    container: document.getElementById('viewport'),
+    onEvent: (event) => {
+      if (event.type === 'buttonClicked' || event.type === 'clicked') {
+        send({ t: ClientMessage.CLICK, id: event.instanceId, b: event.button ?? 0, x: event.position?.x ?? 0, y: event.position?.y ?? 0 });
+      } else if (event.type === 'textChanged') {
+        send({ t: ClientMessage.SET_UI_STATE, d: { instanceId: event.instanceId, text: event.value } });
+      } else if (event.type === 'focusGained' || event.type === 'mouseEnter' || event.type === 'mouseLeave') {
+        send({ t: ClientMessage.SET_UI_STATE, d: { instanceId: event.instanceId, event: event.type } });
+      }
+    },
+  });
+  return state.uiLayer;
+}
+
 function handleFrame(frame) {
   switch (frame.t) {
     case ServerMessage.WELCOME:
@@ -225,6 +252,7 @@ function handleFrame(frame) {
         displayName: frame.player.displayName,
       });
       logLine(`Joined ${frame.game?.name ?? 'server'} (v${frame.game?.version ?? 1})`);
+      ensureUiLayer().setInstances(frame.ui ?? []);
       if (Array.isArray(frame.clientScripts)) startClientScripts(frame.clientScripts);
       resolveReady();
       break;
@@ -273,10 +301,10 @@ function handleFrame(frame) {
       logLine(frame.message, frame.level ?? 'info');
       break;
     case ServerMessage.OBJECT_UPDATE:
-    case ServerMessage.SNAPSHOT_OBJECTS:
       applyObjectUpdates(frame.o ?? []);
       break;
     case ServerMessage.UI:
+      if (state.uiLayer) state.uiLayer.applyUpdates(frame.u ?? frame.updates ?? []);
       document.dispatchEvent(new CustomEvent('kq-ui', { detail: frame }));
       break;
     case ServerMessage.PONG:

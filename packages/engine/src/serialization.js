@@ -14,21 +14,68 @@ export const SCENE_FORMAT = 'kinetiq.scene';
 export const SCENE_VERSION = 1;
 export const DEFAULT_CHUNK_SIZE = 128;
 
+/**
+ * Converts a property value into something JSON can hold.
+ *
+ * Object references (a `parent` property, for instance) become `{ __ref: id }` so the tree can be
+ * rebuilt on load; functions are dropped. `structuredClone` is deliberately not used here: engine
+ * properties can hold live instances, which are not cloneable.
+ */
+export function serializeValue(value) {
+  if (value === null || value === undefined) return null;
+  const type = typeof value;
+  if (type === 'number' || type === 'string' || type === 'boolean') return value;
+  if (type === 'function') return undefined;
+  if (Array.isArray(value)) {
+    const out = [];
+    for (const entry of value) {
+      const converted = serializeValue(entry);
+      if (converted !== undefined) out.push(converted);
+    }
+    return out;
+  }
+  if (type === 'object') {
+    if (isInstanceLike(value)) return { __ref: value.id };
+    if (typeof value.toJSON === 'function') return value.toJSON();
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const converted = serializeValue(entry);
+      if (converted !== undefined) out[key] = converted;
+    }
+    return out;
+  }
+  return undefined;
+}
+
+function isInstanceLike(value) {
+  return Boolean(value) && typeof value === 'object' && typeof value.id === 'string' && 'className' in value && '_props' in value;
+}
+
 export function serializeInstance(instance) {
+  const properties = {};
+  for (const [key, value] of Object.entries(instance._props)) {
+    if (key === 'parent') continue; // parenting is carried by the tree structure
+    const converted = serializeValue(value);
+    if (converted !== undefined) properties[key] = converted;
+  }
   return {
     id: instance.id,
     className: instance.className,
     name: instance.getName(),
     tags: [...instance.tags],
-    properties: structuredClone(instance.rawPropertiesWithNoReplicate()),
+    properties,
     children: instance.children.map(serializeInstance),
   };
 }
 
-// Helper installed lazily to avoid circular import issues in bundlers.
+// Helper kept for callers that want raw (already cloneable) property maps.
 Instance.prototype.rawPropertiesWithNoReplicate = function rawPropertiesWithNoReplicate() {
   const out = {};
-  for (const [key, value] of Object.entries(this._props)) out[key] = structuredClone(value);
+  for (const [key, value] of Object.entries(this._props)) {
+    if (key === 'parent') continue;
+    const converted = serializeValue(value);
+    if (converted !== undefined) out[key] = converted;
+  }
   return out;
 };
 
@@ -143,9 +190,21 @@ function round3(value) {
 /** Rebuilds an instance (and children) from serialized JSON. */
 export function deserializeInstance(json, world, parent = null) {
   const InstanceClass = Instance;
-  const instance = new InstanceClass(json.className, json.properties ?? {}, { id: json.id, world });
+  const properties = {};
+  for (const [key, value] of Object.entries(json.properties ?? {})) {
+    // A property that references another instance is resolved once the whole tree exists.
+    if (value && typeof value === 'object' && typeof value.__ref === 'string') continue;
+    properties[key] = value;
+  }
+  const instance = new InstanceClass(json.className, properties, { id: json.id, world });
   if (json.name) instance.setProperty('name', json.name);
   if (Array.isArray(json.tags)) instance.tags = new Set(json.tags);
+  for (const [key, value] of Object.entries(json.properties ?? {})) {
+    if (!value || typeof value !== 'object' || typeof value.__ref !== 'string') continue;
+    if (key === 'parent') continue;
+    const target = world.get(value.__ref);
+    if (target) instance.setProperty(key, target);
+  }
   for (const childJson of json.children ?? []) deserializeInstance(childJson, world, instance);
   if (parent) instance.setParent(parent);
   return instance;

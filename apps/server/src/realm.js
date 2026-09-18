@@ -469,6 +469,14 @@ export class RealmServer {
       case ClientMessage.READY:
         player.ready = true;
         this.send(player.socket, { t: ServerMessage.LOG, level: 'info', message: 'joined' });
+        // Replay recent script output so a late joiner's dev console (or the editor's Output
+        // panel) still shows startup logs and earlier script errors.
+        for (const entry of this.logHistory.slice(-40)) {
+          this.send(player.socket, { t: ServerMessage.LOG, level: entry.level, message: entry.message });
+        }
+        break;
+      case ClientMessage.CLICK:
+        this.#handleUiClick(player, message);
         break;
       case ClientMessage.SET_UI_STATE:
         this.scriptHost?.fireEvent('uiStateChanged', player.id, message.d ?? {});
@@ -476,6 +484,67 @@ export class RealmServer {
       default:
         this.send(player.socket, { t: ServerMessage.ERROR, code: 'unknown_message' });
     }
+  }
+
+  /** A player clicked an on-screen UI element: rate-limited, then routed to scripts. */
+  #handleUiClick(player, message) {
+    if (!this.limiter.allow(`${player.id}:ui`, 20)) return;
+    const instanceId = String(message.id ?? message.instanceId ?? '').slice(0, 64);
+    if (!instanceId) return;
+    const instance = this.world.get(instanceId);
+    if (!instance) return;
+    const className = instance.className;
+    const interactive = className === 'TextButton' || className === 'Frame' || className === 'ImageLabel' || className === 'TextLabel';
+    if (!interactive) return;
+    if (instance.getProperty('visible') === false) return;
+    const button = Number.isFinite(Number(message.b)) ? Number(message.b) : 0;
+    const payload = {
+      id: instanceId,
+      instanceId,
+      targetId: instanceId,
+      playerId: player.id,
+      button,
+      position: { x: Number(message.x ?? 0), y: Number(message.y ?? 0) },
+    };
+    this.world.events.fire('buttonClicked', payload);
+    this.world.events.fire('uiClicked', payload);
+    this.scriptHost?.fireEvent('buttonClicked', payload);
+  }
+
+  /**
+   * Replicates a UI change made by a script to every player.
+   *
+   * UI is authored in the world (under the `UI` service) and mutated at runtime by server scripts;
+   * clients only ever receive a flat list of {id, className, parentId, properties} records.
+   */
+  broadcastUiUpdate(instance, { removed = false } = {}) {
+    if (!instance) return;
+    const record = removed
+      ? { id: instance.id, remove: true }
+      : {
+          id: instance.id,
+          className: instance.className,
+          parentId: instance.parent?.id ?? null,
+          properties: instance.rawPropertiesWithNoReplicate?.() ?? {},
+        };
+    this.broadcast({ t: ServerMessage.UI, u: [record] });
+  }
+
+  /** The UI tree a joining player should render (world-authored UI lives in the release bundle). */
+  collectUiInstances() {
+    const out = [];
+    const service = this.world.root.findFirstChild('UI');
+    const walk = (instance, parentId) => {
+      out.push({
+        id: instance.id,
+        className: instance.className,
+        parentId,
+        properties: instance.rawPropertiesWithNoReplicate?.() ?? {},
+      });
+      for (const child of instance.children ?? []) walk(child, instance.id);
+    };
+    for (const child of service?.children ?? []) walk(child, null);
+    return out;
   }
 
   #handleInput(player, message) {
@@ -498,7 +567,7 @@ export class RealmServer {
     }
     player.chatCount += 1;
     if (player.chatCount > PROTOCOL_LIMITS.maxChatPerSecond) return;
-    const text = sanitiseChatText(message.m ?? message.text ?? '');
+    const text = sanitiseChatText(message.m ?? message.text ?? message.message ?? '');
     if (!text) return;
     const filtered = this.chatFilter(text);
     const entry = {
@@ -595,6 +664,13 @@ export class RealmServer {
         if (target?.socket) realm.send(target.socket, { t: ServerMessage.NOTIFY, message: String(text).slice(0, 500) });
       },
       kickPlayer: (playerId, reason) => realm.kickPlayer(playerId, reason),
+      uiRoot: realm.world.root.findFirstChild('UI') ?? null,
+      // Script-created UI has to reach every client, not just the one that triggered the script.
+      onInstanceCreated: (instance) => {
+        if (instance?.parent?.className === 'UI' || instance?.className?.startsWith('Text') || ['Frame', 'ImageLabel', 'InputField', 'ScrollingList', 'ProgressBar', 'Viewport'].includes(instance?.className)) {
+          realm.broadcastUiUpdate(instance);
+        }
+      },
       sendToClient: (playerId, name, args) => {
         const target = realm.players.get(playerId);
         if (target?.socket) realm.send(target.socket, { t: ServerMessage.REMOTE, n: name, a: args });

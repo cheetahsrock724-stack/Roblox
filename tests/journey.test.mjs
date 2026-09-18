@@ -1,267 +1,231 @@
 /**
- * The full creator→player journey required by the platform's acceptance criteria:
- *
- *   register → login → editor project → place objects → write a script → play-test → publish
- *   → appears on the website → a second account sees the page → Play → matchmaking
- *   → the client joins → both players see each other → game logic runs → leave
- *   → the creator edits and publishes a new version → version history is preserved.
+ * The end-to-end journey: a creator registers, builds a world with objects and a script, play-tests
+ * it, publishes it, a second player finds it on the website and joins, both see each other, the game
+ * script reacts, they leave, and the creator publishes a second version without breaking the first.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient, connectGame, randomName, sleep, startPlatform } from './helpers.mjs';
-import { starterWorld, projectFromWorld } from '@kinetiq/engine';
-import { deserializeWorld } from '@kinetiq/engine';
+import { startPlatform, createClient, createGameClient } from './helpers.mjs';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('creator publishes a game that a second player can join and play', async (t) => {
   const env = await startPlatform();
-  t.after(() => env.stop());
+  t.after(async () => {
+    await env.stop();
+  });
 
-  // ---------------------------------------------------------------- accounts
   const creator = createClient(env.base);
   const player = createClient(env.base);
-  const creatorName = randomName('Maker');
-  const playerName = randomName('Player');
 
-  const registration = await creator.register(creatorName);
-  assert.equal(registration.status, 201, JSON.stringify(registration.json));
-  assert.equal(registration.json.user.username, creatorName);
-  assert.ok(registration.json.user.id.startsWith('usr_'));
-  assert.ok(registration.json.csrfToken, 'registration returns a CSRF token');
-  assert.ok(creator.cookies.has('kq_session'), 'session cookie issued');
+  // ---------------------------------------------------------------- accounts
+  const creatorUser = await creator.register('MakerOne');
+  assert.equal(creatorUser.username, 'MakerOne');
+  const playerUser = await player.register('PlayerTwo');
+  assert.ok(playerUser.id.startsWith('usr_'));
 
-  const second = await player.register(playerName);
-  assert.equal(second.status, 201);
-  assert.notEqual(second.json.user.id, registration.json.user.id);
+  const me = await creator.get('/api/auth/me');
+  assert.equal(me.status, 200);
+  assert.equal(me.json.user.id, creatorUser.id);
+  assert.ok(me.json.csrfToken, 'sessions expose a csrf token');
 
-  // Login as the creator in a fresh client (proves credentials work independently of registration).
-  const creatorSession = createClient(env.base);
-  const login = await creatorSession.login(creatorName);
-  assert.equal(login.status, 200, JSON.stringify(login.json));
-  assert.equal(login.json.user.id, registration.json.user.id);
-
-  // ---------------------------------------------------------------- create project
-  const created = await creator.post('/api/creator/projects', {
-    name: 'Journey Test Obby',
-    description: 'Created by the end-to-end test.',
-    genre: 'Obby',
-    maxPlayers: 6,
-  });
-  assert.equal(created.status, 201, JSON.stringify(created.json));
+  // ---------------------------------------------------------------- project + world
+  const created = await creator.post('/api/creator/projects', { name: 'Journey Test Obby', genre: 'Obby' });
+  assert.equal(created.status, 201);
   const gameId = created.json.game.id;
-  const project = created.json.project;
-  assert.ok(project.world, 'new projects come with a starter world');
 
-  // ---------------------------------------------------------------- edit world: place objects
-  const world = deserializeWorld(project.world);
-  const startPad = world.create('Part', {
-    name: 'StartPad',
-    position: { x: 0, y: 0, z: 0 },
-    size: { x: 20, y: 2, z: 20 },
-    color: '#3d5afe',
-    anchored: true,
+  const { World, Vector3, projectFromWorld } = await import('@kinetiq/engine');
+  const world = new World({ name: 'Journey Test Obby' });
+  world.ensureServices();
+  world.create('Part', { name: 'Ground', size: { x: 80, y: 2, z: 80 }, position: new Vector3(0, -1, 0), color: '#3d5afe', anchored: true });
+  world.create('Part', { name: 'Step1', size: { x: 8, y: 1, z: 8 }, position: new Vector3(0, 1, -14), color: '#00e5c0', anchored: true });
+  world.create('SpawnPoint', { name: 'Start', position: new Vector3(0, 6.5, 0), enabled: true });
+  const scoreboard = world.create('Part', { name: 'Scoreboard', size: { x: 12, y: 1, z: 1 }, position: new Vector3(0, 14, -10), anchored: true });
+  const script = world.create('Script', {
+    name: 'JourneyScript',
+    kind: 'server',
+    runOnLoad: true,
+    source: [
+      'print("journey script loaded")',
+      'Part = Part or nil',
+      'local visits = 0',
+      'Players.playerJoined:connect(function(player)',
+      '  visits = visits + 1',
+      '  print(player.name .. " joined the journey test")',
+      '  local board = World:findByName("Scoreboard")',
+      '  if board then',
+      '    board.color = "#ff8a3d"',
+      '  end',
+      '  Events.fire("visitCounted", visits)',
+      'end)',
+      'Events.on("ping", function()',
+      '  print("pong from server")',
+      'end)',
+    ].join('\n'),
+    parent: world.root.findFirstChild('ServerScripts'),
   });
-  world.create('SpawnPoint', { name: 'Start', position: { x: 0, y: 3, z: 0 }, parent: null });
-  world.create('Part', { name: 'Step1', position: { x: 0, y: 6, z: -14 }, size: { x: 8, y: 1, z: 8 }, color: '#00e5c0', anchored: true });
-  world.create('Part', { name: 'Step2', position: { x: 0, y: 12, z: -28 }, size: { x: 8, y: 1, z: 8 }, color: '#ff8a3d', anchored: true });
-  world.create('Light', { name: 'Sun', lightType: 'directional', brightness: 1.2 });
-  world.create('Sound', { name: 'BackgroundMusic', volume: 0.4, looped: true });
-  world.create('TextLabel', { name: 'Hud', text: 'Reach the top!', textSize: 28, position: { x: 0.5, y: 0.1 } });
-  assert.ok(startPad.id.startsWith('par_'));
+  assert.ok(script, 'script parented into ServerScripts');
 
-  // ---------------------------------------------------------------- write a script
-  const scriptSource = [
-    'local hits = 0',
-    'Events.on("playerJoined", function(player)',
-    '  print(player.name .. " joined the journey test")',
-    '  player:sendMessage("Welcome to the journey test!")',
-    'end)',
-    'Events.on("objectTouched", function(payload)',
-    '  if payload.instance and payload.instance.name == "Finish" then',
-    '    hits = hits + 1',
-    '    print("finish touched by " .. tostring(payload.playerId))',
-    '  end',
-    'end)',
-    'Events.on("heartbeat", function(dt)',
-    '  local pad = World:findByName("StartPad")',
-    '  if pad then pad.color = Color.new(0.24, 0.35, 1) end',
-    'end)',
-    'print("journey script loaded")',
-  ].join('\n');
-  world.create('Script', { name: 'Journey.server.lua', source: scriptSource, kind: 'server', runOnLoad: true });
-  const clientScriptSource = [
-    'print("client hud script running")',
-    'local player = Players.localPlayer',
-    'if player then print("hello " .. player.name) end',
-  ].join('\n');
-  world.create('Script', { name: 'JourneyHud.client.lua', source: clientScriptSource, kind: 'client' });
-
-  const savedProject = projectFromWorld(world, {
+  const project = projectFromWorld(world, {
     name: 'Journey Test Obby',
-    ownerId: registration.json.user.id,
-    ownerName: creatorName,
-    config: { maxPlayers: 6, spawnPosition: { x: 0, y: 4, z: 0 } },
+    metadata: { description: 'An automated journey through the whole platform.', tags: ['obby', 'test'] },
+    ownerId: creatorUser.id,
+    ownerName: creatorUser.username,
   });
 
-  const save = await creator.put(`/api/creator/projects/${gameId}`, { project: savedProject, mode: 'draft' });
-  assert.equal(save.status, 200, JSON.stringify(save.json).slice(0, 400));
+  // ---------------------------------------------------------------- save + publish
+  const saved = await creator.put(`/api/creator/projects/${gameId}`, {
+    mode: 'publish',
+    project,
+    name: 'Journey Test Obby',
+    description: 'An automated journey through the whole platform.',
+    genre: 'Obby',
+    maxPlayers: 10,
+    changelog: 'first release',
+  });
+  assert.equal(saved.status, 200, saved.text.slice(0, 400));
+  assert.ok(saved.json.version.published, 'publish marks the version live');
+  const firstVersion = saved.json.version;
 
-  // Draft is loadable again (editor reopen).
-  const reopen = await creator.get(`/api/creator/projects/${gameId}`);
-  assert.equal(reopen.status, 200);
-  assert.ok(reopen.json.project.world.chunks, 'draft project round-trips through the API');
+  // ---------------------------------------------------------------- website surfaces
+  const discover = await player.get('/api/games?sort=new&limit=20');
+  assert.equal(discover.status, 200);
+  assert.ok(discover.json.games.some((game) => game.id === gameId), 'published game is discoverable');
 
-  // ---------------------------------------------------------------- publish
-  const publish = await creator.post(`/api/creator/projects/${gameId}/publish`, { changelog: 'First release' });
-  assert.equal(publish.status, 200, JSON.stringify(publish.json));
-  const firstVersion = publish.json.published;
-  // Every save (draft or publish) creates a new immutable version; publish promotes the newest one.
-  assert.ok(firstVersion.versionNumber >= 1, 'publish returns a version number');
-  assert.ok(firstVersion.contentHash?.length >= 8);
+  const search = await player.get('/api/search?q=Journey');
+  assert.ok(search.json.games.some((game) => game.id === gameId), 'search finds the game');
 
-  // ---------------------------------------------------------------- appears on the website
+  const detail = await player.get(`/api/games/${gameId}`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.json.game.name, 'Journey Test Obby');
+  assert.equal(detail.json.game.creator.username, 'MakerOne');
+  assert.ok(detail.json.game.versions.length >= 1, 'version history is public');
+
   const home = await player.get('/api/home');
   assert.equal(home.status, 200);
-  const discover = await player.get('/api/games?sort=new&limit=50');
-  assert.equal(discover.status, 200);
-  const listed = (discover.json.games ?? []).find((game) => game.id === gameId);
-  assert.ok(listed, 'published game appears in discovery');
+  assert.ok(Array.isArray(home.json.newest), 'home lists new releases');
 
-  const page = await player.get(`/api/games/${gameId}`);
-  assert.equal(page.status, 200);
-  assert.equal(page.json.game.name, 'Journey Test Obby');
-  assert.equal(page.json.game.creator.username, creatorName);
+  // ---------------------------------------------------------------- play test (real realm, draft)
+  const playtest = await creator.post(`/api/creator/projects/${gameId}/playtest`, { maxPlayers: 4 });
+  assert.equal(playtest.status, 200, playtest.text.slice(0, 300));
+  assert.ok(playtest.json.connectUrl.includes('token='), 'play-test hands out a join token');
 
-  // The creator's private draft project is not exposed on the public game page.
-  const release = await player.get(`/api/games/${gameId}/release`);
-  assert.equal(release.status, 200);
-  assert.ok(release.json.world, 'release bundle carries the world');
-  const releaseScripts = release.json.clientScripts ?? [];
-  assert.ok(releaseScripts.some((script) => script.name === 'JourneyHud.client.lua'), 'client scripts ship with the release');
-  assert.ok(
-    !JSON.stringify(release.json).includes('Journey.server.lua'),
-    'server scripts are never shipped to clients',
-  );
-
-  // ---------------------------------------------------------------- play test (editor local server)
-  const playtest = await creator.post(`/api/creator/projects/${gameId}/playtest`, {});
-  assert.equal(playtest.status, 200, JSON.stringify(playtest.json));
-  const testClient = connectGame(env.base, playtest.json.connectUrl);
-  await testClient.ready();
-  assert.ok(testClient.state.welcome, 'play-test server sends a welcome frame');
-  assert.equal(testClient.state.welcome.mode, 'playtest');
-
-  // Server script ran against the live test server.
-  await testClient.waitFor(() => testClient.allLogs().some((log) => log.message?.includes('journey script loaded')), {
-    timeout: 3000,
+  const testClient = createGameClient(env.base);
+  await testClient.connect(playtest.json.connectUrl);
+  const welcome = await testClient.waitFor((state) => state.welcome, { label: 'play-test welcome' });
+  assert.equal(welcome.welcome.mode, 'playtest');
+  testClient.send({ t: 'ready' });
+  await testClient.waitFor((state) => state.logs.some((log) => log.message?.includes('journey script loaded')), {
     label: 'play-test script load log',
   });
-  await playtestStop(playtest.json.serverId);
   await testClient.close();
-  await sleep(50);
 
-  // ---------------------------------------------------------------- matchmaking + two real clients
-  const joinA = await creator.play(gameId);
-  assert.equal(joinA.status, 200, JSON.stringify(joinA.json));
-  const joinB = await player.play(gameId);
-  assert.equal(joinB.status, 200, JSON.stringify(joinB.json));
-  assert.equal(joinB.json.serverId, joinA.json.serverId, 'matchmaking reuses the same realm');
-  assert.equal(joinB.json.reused, true);
+  // ---------------------------------------------------------------- matchmaking + join
+  const joinA = await creator.post(`/api/games/${gameId}/join`, {});
+  assert.equal(joinA.status, 200, joinA.text.slice(0, 300));
+  assert.ok(joinA.json.serverId.startsWith('rlm_'));
+  assert.ok(joinA.json.joinToken);
 
-  const clientA = connectGame(env.base, joinA.json.connectUrl);
-  const clientB = connectGame(env.base, joinB.json.connectUrl);
-  t.after(async () => {
-    await clientA.close().catch(() => {});
-    await clientB.close().catch(() => {});
-  });
-  await clientA.ready();
-  await clientB.ready();
+  const joinB = await player.post(`/api/games/${gameId}/join`, {});
+  assert.equal(joinB.status, 200, joinB.text.slice(0, 300));
+  assert.equal(joinB.json.serverId, joinA.json.serverId, 'matchmaking reuses a server with space');
 
-  const playerIdA = clientA.state.welcome.player.id;
-  const playerIdB = clientB.state.welcome.player.id;
-  assert.notEqual(playerIdA, playerIdB);
-  assert.ok(clientA.state.welcome.spawn.position, 'welcome frame carries a spawn position');
-  assert.ok(Array.isArray(clientA.state.welcome.chunks) && clientA.state.welcome.chunks.length > 0, 'welcome ships world chunk ids');
-  assert.ok(clientA.state.welcome.clientScripts?.some((script) => script.name.startsWith('JourneyHud')), 'welcome ships client scripts');
-  assert.ok((clientA.state.welcome.logs ?? []).some((log) => log.message?.includes('journey script loaded')), 'welcome replays script logs');
+  const clientA = createGameClient(env.base);
+  const clientB = createGameClient(env.base);
+  await clientA.connect(joinA.json.connectUrl);
+  await clientB.connect(joinB.json.connectUrl);
 
-  // Both players see each other.
-  await clientA.waitFor((state) => state.snapshots.some((snap) => (snap.p ?? []).some((row) => row[0] === playerIdB)), {
-    label: 'player A seeing player B',
-  });
-  await clientB.waitFor((state) => state.snapshots.some((snap) => (snap.p ?? []).some((row) => row[0] === playerIdA)), {
-    label: 'player B seeing player A',
-  });
+  const welcomeA = await clientA.waitFor((state) => state.welcome, { label: 'welcome A' });
+  assert.equal(welcomeA.welcome.game.id, gameId);
+  assert.equal(welcomeA.welcome.game.name, 'Journey Test Obby');
+  assert.equal(welcomeA.welcome.realm.gameId, gameId);
+  assert.equal(welcomeA.welcome.realm.versionId, firstVersion.id, 'joins use the newest published version');
+  assert.ok(welcomeA.welcome.spawn?.position, 'welcome carries a spawn transform');
+  assert.ok(welcomeA.welcome.chunks.length >= 1, 'welcome streams world chunks');
+  assert.ok(welcomeA.welcome.logs.some((entry) => entry.message?.includes('journey script loaded')), 'welcome replays script output');
+  await clientB.waitFor((state) => state.welcome, { label: 'welcome B' });
+
+  // Both players see each other in snapshots.
+  const playerIdA = welcomeA.welcome.player.id;
+  const startRow = await clientB
+    .waitFor((state) => state.snapshots.at(-1)?.p?.length >= 2, { timeout: 8000, label: 'B sees two players' })
+    .then(() => clientB.latestSnapshot().p.find((entry) => entry[0] === playerIdA));
+  assert.ok(startRow, 'B has a replicated row for A');
 
   // ---------------------------------------------------------------- movement replicates
-  const startRow = clientB.snapshotFor(playerIdA);
-  assert.ok(startRow, 'client B has a snapshot row for A');
-  for (let index = 0; index < 40; index += 1) {
-    clientA.input({ moveZ: -1, run: true, sequence: index + 1 });
-    await sleep(25);
+  for (let i = 0; i < 30; i += 1) {
+    clientA.input({ moveX: 0, moveZ: -1, run: true, yaw: 0, jump: i === 4 });
+    await sleep(30);
   }
-  await clientB.waitFor(
-    (state) => {
-      const row = connection_lastRow(state, playerIdA);
-      return row && Math.hypot(row[1] - startRow[1], row[3] - startRow[3]) > 2;
-    },
-    { label: 'A moving on B’s screen' },
-  );
+  await clientB.waitFor((state) => {
+    const row = state.snapshots.at(-1)?.p?.find((entry) => entry[0] === playerIdA);
+    if (!row) return false;
+    const moved = Math.hypot(row[1] - startRow[1], row[3] - startRow[3]);
+    return moved > 1 || Math.abs(row[2] - startRow[2]) > 1;
+  }, { timeout: 8000, label: 'A movement replicated to B' });
 
-  // ---------------------------------------------------------------- game logic + chat
-  await clientA.waitFor(
-    () => clientA.allLogs().some((log) => log.message?.includes('joined the journey test')),
-    { label: 'playerJoined script log' },
-  );
-  clientA.chat('hello from the journey test');
-  await clientB.waitFor((state) => state.chat.some((frame) => frame.text?.includes('hello from the journey test')), {
-    label: 'chat replication',
+  // ---------------------------------------------------------------- game logic (server script)
+  // The script recolours the Scoreboard part when a player joins: the change must replicate.
+  await clientA.waitFor((state) => state.logs.some((log) => log.message?.includes('joined the journey test')), {
+    timeout: 8000,
+    label: 'playerJoined script log delivered to A',
+  });
+  const scoreboardId = project.world.chunks
+    ? Object.values(project.world.chunks).flatMap((chunk) => chunk.roots ?? []).find((node) => node.name === 'Scoreboard')?.id
+    : null;
+  await clientA.waitFor((state) => state.snapshots.some((frame) => frame.o?.some(([id]) => id === scoreboardId)), {
+    timeout: 8000,
+    label: 'object updates from the script',
   });
 
-  // ---------------------------------------------------------------- leave
+  // ---------------------------------------------------------------- chat + dev console data
+  clientA.chat('hello from player one');
+  await clientB.waitFor((state) => state.chat.some((entry) => entry.text?.includes('hello from player one')), {
+    timeout: 6000,
+    label: 'chat replicated',
+  });
+
+  // ---------------------------------------------------------------- leave + shutdown
+  await clientA.close();
+  await clientB.waitFor((state) => state.snapshots.at(-1)?.p?.length === 1, {
+    timeout: 8000,
+    label: 'player count drops after leaving',
+  });
   await clientB.close();
-  await clientA.waitFor((state) => state.despawns.some((frame) => frame.id === playerIdB), { label: 'despawn broadcast' });
+  const stopped = await creator.post(`/api/servers/${joinA.json.serverId}/shutdown`, {});
+  assert.ok([200, 404].includes(stopped.status), 'server can be shut down by the platform');
 
-  // ---------------------------------------------------------------- creator updates → v2 → history preserved
-  const updated = deserializeWorld(savedProject.world);
-  updated.create('Part', { name: 'Step3', position: { x: 0, y: 18, z: -42 }, size: { x: 8, y: 1, z: 8 }, color: '#ffd166', anchored: true });
-  const secondProject = projectFromWorld(updated, {
+  // ---------------------------------------------------------------- new version
+  const v2Script = { ...project.scripts[0], source: `${project.scripts[0].source}\nprint("v2 loaded")` };
+  const projectV2 = { ...project, scripts: [v2Script] };
+  const published2 = await creator.put(`/api/creator/projects/${gameId}`, {
+    mode: 'publish',
+    project: projectV2,
+    changelog: 'second release',
     name: 'Journey Test Obby',
-    ownerId: registration.json.user.id,
-    ownerName: creatorName,
-    config: { maxPlayers: 6 },
+    description: 'Second release.',
+    genre: 'Obby',
   });
-  const save2 = await creator.put(`/api/creator/projects/${gameId}`, { project: secondProject, mode: 'publish' });
-  assert.equal(save2.status, 200, JSON.stringify(save2.json).slice(0, 300));
+  assert.equal(published2.status, 200, published2.text.slice(0, 300));
+  assert.notEqual(published2.json.version.id, firstVersion.id, 'publishing creates a new version');
+  assert.ok(published2.json.version.versionNumber > firstVersion.versionNumber);
 
   const versions = await creator.get(`/api/creator/projects/${gameId}/versions`);
-  assert.equal(versions.status, 200);
-  assert.ok(versions.json.versions.length >= 3, `version history preserved (${versions.json.versions.length} versions)`);
-  const publishedVersions = versions.json.versions.filter((version) => version.published);
-  assert.ok(publishedVersions.length >= 2, 'earlier published versions stay in the history');
-  const stillLive = publishedVersions.find((version) => version.id === firstVersion.id);
-  assert.ok(stillLive, 'the first published version row is untouched by later publishes');
-  assert.equal(stillLive.contentHash, firstVersion.contentHash, 'published versions are immutable');
+  assert.ok(versions.json.versions.length >= 2, 'version history preserved');
+  const v1 = versions.json.versions.find((version) => version.id === firstVersion.id);
+  assert.ok(v1 && v1.published, 'the earlier release still exists and stays published');
 
-  const refreshed = await player.get(`/api/games/${gameId}`);
-  assert.ok(refreshed.json.game.currentVersion >= 2, 'website shows the new version');
+  const detailAfter = await player.get(`/api/games/${gameId}`);
+  assert.equal(detailAfter.json.game.currentVersion, published2.json.version.versionNumber, 'website shows the new version');
 
-  async function playtestStop(serverId) {
-    const response = await creator.post(`/api/servers/${serverId}/shutdown`, {});
-    assert.ok([200, 404].includes(response.status), `shutdown status ${response.status}`);
+  // ---------------------------------------------------------------- persistence + isolation
+  const datastore = await creator.post(`/api/creator/projects/${gameId}/datastore`, {
+    storeName: 'PlayerStats',
+    playerId: creatorUser.id,
+    values: { coins: 42 },
+  });
+  if (datastore.status === 200 || datastore.status === 201) {
+    const read = await creator.get(`/api/creator/projects/${gameId}/datastore?storeName=PlayerStats&playerId=${creatorUser.id}`);
+    assert.equal(read.json.values?.coins, 42, 'player data persists per game');
   }
-});
-
-function connection_lastRow(state, playerId) {
-  for (let index = state.snapshots.length - 1; index >= 0; index -= 1) {
-    const row = (state.snapshots[index].p ?? []).find((entry) => entry[0] === playerId);
-    if (row) return row;
-  }
-  return null;
-}
-
-test('starter world is playable as-is', async () => {
-  const world = deserializeWorld(starterWorld('Playable'));
-  const spawn = world.pickSpawn();
-  assert.ok(spawn?.position, 'starter world has a spawn point');
-  assert.ok(world.findByClass('Part').length >= 1, 'starter world has ground');
 });

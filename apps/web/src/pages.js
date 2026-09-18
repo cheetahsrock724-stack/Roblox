@@ -1,7 +1,7 @@
 /** HTML entry points served by the platform (branding is injected at serve time). */
 export const pageRoutes = {
-  '/': 'home.html',
-  '/index.html': 'home.html',
+  '/': 'app.html',
+  '/index.html': 'app.html',
   '/home': 'app.html',
   '/discover': 'app.html',
   '/search': 'app.html',

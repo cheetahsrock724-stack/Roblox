@@ -72,7 +72,8 @@ export class World {
 
   /** Insert an instance into the tree and register it. */
   add(instance, parent = null) {
-    instance.setParent(parent ?? this.root);
+    // A `parent` passed inside the property table wins over the default (the root).
+    instance.setParent(parent ?? instance.parent ?? this.root);
     if (!this.instances.has(instance.id)) this.registerTree(instance);
     return instance;
   }

@@ -1,0 +1,20 @@
+<!--
+  Shared browser import map. The web app, client, editor and admin panel all load the same engine
+  and networking packages the server uses, so behaviour cannot drift between them.
+-->
+<script type="importmap">
+  {
+    "imports": {
+      "@kinetiq/shared": "/pkg/shared/browser.js",
+      "@kinetiq/engine": "/pkg/engine/index.js",
+      "@kinetiq/networking": "/pkg/networking/index.js",
+      "@kinetiq/scripting": "/pkg/scripting/index.js",
+      "@kinetiq/ui": "/pkg/ui/index.js",
+      "@kinetiq/ui/layout": "/pkg/ui/layout.js",
+      "@kinetiq/ui/widgets": "/pkg/ui/widgets.js",
+      "three": "/vendor/three/build/three.module.js",
+      "three/addons/": "/vendor/three/addons/",
+      "wasmoon": "/shared/wasmoon-shim.js"
+    }
+  }
+</script>

@@ -56,6 +56,12 @@
       </div>
     </div>
 
+    <script src="/vendor/wasmoon/index.js"></script>
+    <script>
+      // Keeps the browser Lua VM and the server Lua VM on the same build.
+      window.__KINETIQ_WASM_URI__ = '/vendor/wasmoon/glue.wasm';
+    </script>
+    <!--include:importmap-->
     <script type="module" src="/shared/api.js"></script>
     <script type="module" src="/client.js"></script>
   </body>
