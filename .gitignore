@@ -1,0 +1,15 @@
+node_modules/
+var/
+tmp-dev/
+*.log
+.DS_Store
+dist/
+build/
+coverage/
+.env
+.env.local
+tmp/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

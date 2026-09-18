@@ -1,0 +1,37 @@
+{
+  "name": "kinetiq-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kinetiq - an original multiplayer game platform: website, creator editor, game servers, game client, and developer APIs.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "start": "node scripts/dev.mjs",
+    "api": "node scripts/dev.mjs",
+    "realm": "node apps/server/src/host.js",
+    "migrate": "node packages/db/src/migrate-cli.js",
+    "seed": "node packages/db/src/seed-cli.js",
+    "test": "node --test tests/",
+    "editor": "node scripts/dev.mjs",
+    "client": "node scripts/dev.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.0",
+    "wasmoon": "^1.16.0",
+    "ws": "^8.18.0"
+  },
+  "keywords": [
+    "game-platform",
+    "multiplayer",
+    "lua",
+    "creator-tools"
+  ],
+  "license": "MIT"
+}

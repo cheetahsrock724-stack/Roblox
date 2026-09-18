@@ -1,0 +1,17 @@
+{
+  "name": "@kinetiq/scripting",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./sandbox": "./src/sandbox.js",
+    "./api": "./src/api.js"
+  },
+  "dependencies": {
+    "@kinetiq/engine": "*",
+    "@kinetiq/shared": "*",
+    "wasmoon": "^1.16.0"
+  }
+}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="{{surface}}"/>
+  <path d="M18 46V18h9v11l11-11h11L36 31l13 15H37l-7-9-3 3v6z" fill="{{accent}}"/>
+  <circle cx="47" cy="18" r="4" fill="{{primary}}"/>
+</svg>

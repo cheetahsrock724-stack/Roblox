@@ -1,0 +1,49 @@
+{
+  "$comment": "Platform-wide configuration. Change `platformName` (and friends) here, or override with PLATFORM_NAME / KINETIQ_* environment variables. Nothing in the codebase hard-codes the product name.",
+  "platformName": "Kinetiq",
+  "platformTagline": "Build worlds. Play together.",
+  "platformDomain": "kinetiq.local",
+  "currencyName": "Credits",
+  "currencySymbol": "\u25c8",
+  "currencyCode": "KTC",
+  "editorName": "Forge",
+  "clientName": "Play",
+  "serverName": "Realm",
+  "supportEmail": "support@kinetiq.local",
+  "brandColors": {
+    "primary": "#3d5afe",
+    "accent": "#00e5c0",
+    "surface": "#0d1220",
+    "danger": "#ff4d6d"
+  },
+  "features": {
+    "emailVerification": false,
+    "requireEmailVerificationToPlay": false,
+    "marketplaceEnabled": true,
+    "groupsEnabled": true,
+    "chatEnabled": true,
+    "publicApiEnabled": true,
+    "registrationEnabled": true
+  },
+  "economy": {
+    "signupBonus": 500,
+    "dailyBonus": 100,
+    "developerRevenueShare": 0.7,
+    "minPayout": 1000
+  },
+  "safety": {
+    "chatFilterEnabled": true,
+    "maxMessageLength": 240,
+    "chatRateLimitPerMinute": 20,
+    "minAccountAgeMinutesForChat": 0,
+    "accountLockoutAttempts": 8,
+    "accountLockoutMinutes": 15
+  },
+  "games": {
+    "defaultMaxPlayers": 12,
+    "maxMaxPlayers": 60,
+    "defaultGameVersion": 1,
+    "streamingRadiusStuds": 512,
+    "serverIdleShutdownSeconds": 300
+  }
+}

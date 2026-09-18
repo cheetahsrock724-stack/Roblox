@@ -1,0 +1,26 @@
+/** HTML entry points served by the platform (branding is injected at serve time). */
+export const pageRoutes = {
+  '/': 'home.html',
+  '/index.html': 'home.html',
+  '/home': 'app.html',
+  '/discover': 'app.html',
+  '/search': 'app.html',
+  '/friends': 'app.html',
+  '/avatar': 'app.html',
+  '/inventory': 'app.html',
+  '/messages': 'app.html',
+  '/notifications': 'app.html',
+  '/settings': 'app.html',
+  '/creator': 'app.html',
+  '/login': 'app.html',
+  '/register': 'app.html',
+  '/reset': 'app.html',
+  '/verify': 'app.html',
+  '/join': 'app.html',
+  '/play': 'client.html',
+  '/client': 'client.html',
+  '/editor': 'editor.html',
+  '/admin': 'admin.html',
+  '/docs': 'app.html',
+};
+export default pageRoutes;

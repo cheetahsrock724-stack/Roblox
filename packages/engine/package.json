@@ -1,0 +1,18 @@
+{
+  "name": "@kinetiq/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./instance": "./src/instance.js",
+    "./physics": "./src/physics.js",
+    "./project": "./src/project.js",
+    "./classes": "./src/classes.js",
+    "./serialization": "./src/serialization.js"
+  },
+  "dependencies": {
+    "@kinetiq/shared": "*"
+  }
+}

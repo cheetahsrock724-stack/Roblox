@@ -1,0 +1,19 @@
+{
+  "name": "@kinetiq/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@kinetiq/db": "*",
+    "@kinetiq/engine": "*",
+    "@kinetiq/networking": "*",
+    "@kinetiq/scripting": "*",
+    "@kinetiq/shared": "*",
+    "@kinetiq/server": "*",
+    "ws": "^8.18.0"
+  }
+}

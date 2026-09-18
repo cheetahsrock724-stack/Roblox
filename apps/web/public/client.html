@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>{{platformName}} — {{clientName}}</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles/client.css" />
+    <script>
+      window.__PLATFORM__ = {
+        name: '{{platformName}}',
+        tagline: '{{platformTagline}}',
+        currencyName: '{{currencyName}}',
+        currencySymbol: '{{currencySymbol}}',
+        editorName: '{{editorName}}',
+        colors: { primary: '{{primary}}', accent: '{{accent}}', surface: '{{surface}}' },
+      };
+    </script>
+  </head>
+  <body class="client">
+    <div id="viewport"></div>
+
+    <header id="hud-top">
+      <div class="hud-left">
+        <button id="leave-button" class="ghost-button" title="Leave the game">Leave</button>
+        <span id="game-title">Loading…</span>
+      </div>
+      <div class="hud-right">
+        <span id="player-count">1 / ?</span>
+        <select id="graphics-preset" title="Graphics preset">
+          <option value="auto">Auto</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+        <button id="reset-button" class="ghost-button">Reset character</button>
+        <span id="status" class="status-pill">loading</span>
+      </div>
+    </header>
+
+    <div id="hud" class="hud">
+      <div id="toasts"></div>
+      <div id="chat-log" class="chat-log"></div>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" type="text" maxlength="240" placeholder="Press T to chat…" autocomplete="off" />
+      </form>
+      <div id="stats" class="stats hidden"></div>
+      <pre id="console" class="dev-console hidden"><div class="console-head">Developer console — F3 to toggle</div><div id="console-body"></div></pre>
+      <div class="hints">WASD move · Shift run · Space jump · Mouse look · T chat · F3 console</div>
+    </div>
+
+    <div id="loading-overlay">
+      <div class="loader">
+        <div class="loader-bar"><div class="loader-fill"></div></div>
+        <p>Loading {{platformName}}…</p>
+      </div>
+    </div>
+
+    <script type="module" src="/shared/api.js"></script>
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>
