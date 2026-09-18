@@ -169,7 +169,7 @@ export function isLocked(user) {
 }
 
 export function updatePassword(userId, password) {
-  run('UPDATE users SET password_hash = ?, updated_at = datetime("now") WHERE id = ?', [
+  run('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?', [
     hashPassword(password),
     userId,
   ]);
@@ -203,7 +203,7 @@ export function updateProfile(userId, { displayName, bio, avatarItemIds, avatarC
     params.push(JSON.stringify({ ...DEFAULT_SETTINGS, ...settings }));
   }
   if (!fields.length) return findById(userId);
-  fields.push('updated_at = datetime("now")');
+  fields.push('updated_at = datetime(\'now\')');
   params.push(userId);
   run(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, params);
   return findById(userId);
@@ -212,7 +212,7 @@ export function updateProfile(userId, { displayName, bio, avatarItemIds, avatarC
 export function updatePrivacy(userId, privacy) {
   const merged = { ...normalisePrivacy(get('SELECT privacy FROM users WHERE id = ?', [userId])?.privacy), ...privacy };
   const clean = normalisePrivacy(merged);
-  run('UPDATE users SET privacy = ?, updated_at = datetime("now") WHERE id = ?', [JSON.stringify(clean), userId]);
+  run('UPDATE users SET privacy = ?, updated_at = datetime(\'now\') WHERE id = ?', [JSON.stringify(clean), userId]);
   return clean;
 }
 
@@ -235,7 +235,7 @@ export function sweepStalePresence(olderThanSeconds = 90) {
 }
 
 export function setSanction(userId, { status, reason, until = null }) {
-  run('UPDATE users SET status = ?, status_reason = ?, status_until = ?, updated_at = datetime("now") WHERE id = ?', [
+  run('UPDATE users SET status = ?, status_reason = ?, status_until = ?, updated_at = datetime(\'now\') WHERE id = ?', [
     status,
     reason ?? null,
     until,
@@ -244,7 +244,7 @@ export function setSanction(userId, { status, reason, until = null }) {
 }
 
 export function setRole(userId, role) {
-  run('UPDATE users SET role = ?, updated_at = datetime("now") WHERE id = ?', [role, userId]);
+  run('UPDATE users SET role = ?, updated_at = datetime(\'now\') WHERE id = ?', [role, userId]);
 }
 
 export function markDeveloper(userId, isDeveloper = true) {
@@ -252,7 +252,7 @@ export function markDeveloper(userId, isDeveloper = true) {
 }
 
 export function setAvatarImage(userId, assetId) {
-  run('UPDATE users SET avatar_image_id = ?, updated_at = datetime("now") WHERE id = ?', [assetId, userId]);
+  run('UPDATE users SET avatar_image_id = ?, updated_at = datetime(\'now\') WHERE id = ?', [assetId, userId]);
 }
 
 export function addPlaytime(userId, seconds) {
@@ -305,7 +305,7 @@ export function countActiveSince(seconds) {
 }
 
 export function touchActivity(userId) {
-  run('UPDATE users SET presence_updated_at = datetime("now") WHERE id = ?', [userId]);
+  run('UPDATE users SET presence_updated_at = datetime(\'now\') WHERE id = ?', [userId]);
 }
 
 export { NOTIFICATION_KINDS, nowSeconds };

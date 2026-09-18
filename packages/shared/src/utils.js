@@ -120,6 +120,16 @@ export function chunk(array, size) {
   return out;
 }
 
+/** URL-friendly identifier derived from a display name (games, groups, assets). */
+export function slugify(value, { max = 48 } = {}) {
+  return String(value)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, max);
+}
+
 export function pick(obj, keys) {
   const out = {};
   for (const key of keys) if (obj[key] !== undefined) out[key] = obj[key];

@@ -8,4 +8,3 @@ export * from './ids.js';
 export * from './logger.js';
 export * from './utils.js';
 export * from './validation.js';
-export { default as platformConfig } from './config.js';

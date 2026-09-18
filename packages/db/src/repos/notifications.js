@@ -33,11 +33,11 @@ export function unreadCount(userId) {
 }
 
 export function markRead(userId, notificationId) {
-  run('UPDATE notifications SET read_at = datetime("now") WHERE user_id = ? AND id = ?', [userId, notificationId]);
+  run('UPDATE notifications SET read_at = datetime(\'now\') WHERE user_id = ? AND id = ?', [userId, notificationId]);
 }
 
 export function markAllRead(userId) {
-  run('UPDATE notifications SET read_at = datetime("now") WHERE user_id = ? AND read_at IS NULL', [userId]);
+  run('UPDATE notifications SET read_at = datetime(\'now\') WHERE user_id = ? AND read_at IS NULL', [userId]);
 }
 
 function safeParse(value) {

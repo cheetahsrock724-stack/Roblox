@@ -117,19 +117,18 @@ if (process.env.PLATFORM_NAME) envOverrides.platformName = process.env.PLATFORM_
 if (process.env.PLATFORM_TAGLINE) envOverrides.platformTagline = process.env.PLATFORM_TAGLINE;
 if (process.env.CURRENCY_NAME) envOverrides.currencyName = process.env.CURRENCY_NAME;
 
-export const platformConfig = deepMerge(deepMerge(defaults, fileConfig), envOverrides);
+/**
+ * Branding/product configuration, merged as: defaults <- platform.config.json <- environment.
+ * The runtime/deployment settings are merged in as flat keys too, so a single object exposes both
+ * `platformConfig.platformName` (branding) and `platformConfig.port` (deployment). The nested
+ * `platform` key is kept for templates that read `config.platform.platformName`.
+ */
+const branding = deepMerge(deepMerge(defaults, fileConfig), envOverrides);
 
-export const config = {
-  ...runtime,
-  platform: platformConfig,
-  /** Convenience alias so `import { platform } from '@kinetiq/shared'` reads naturally. */
-  get platformName() {
-    return platformConfig.platformName;
-  },
-  get currencyName() {
-    return platformConfig.currencyName;
-  },
-};
+export const platformConfig = { ...runtime, ...branding, platform: branding };
+
+/** Alias kept for readability at call sites: `import { config } from '@kinetiq/shared'`. */
+export const config = platformConfig;
 
 /** Derived paths used across the platform. `files` entries are never created as directories. */
 export const paths = {

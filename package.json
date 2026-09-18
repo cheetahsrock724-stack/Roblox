@@ -12,17 +12,15 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "node scripts/dev.js",
-    "start": "node scripts/dev.js",
-    "api": "node apps/web/src/index.js",
+    "dev": "node scripts/dev.mjs",
+    "start": "node scripts/dev.mjs",
+    "api": "node scripts/dev.mjs",
     "realm": "node apps/server/src/host.js",
     "migrate": "node packages/db/src/migrate-cli.js",
     "seed": "node packages/db/src/seed-cli.js",
     "test": "node --test tests/",
-    "test:unit": "node --test tests/unit/",
-    "test:integration": "node --test tests/integration/",
-    "launcher": "node apps/launcher/src/index.js",
-    "lift": "node scripts/lift.js"
+    "editor": "node scripts/dev.mjs",
+    "client": "node scripts/dev.mjs"
   },
   "dependencies": {
     "three": "^0.186.0",

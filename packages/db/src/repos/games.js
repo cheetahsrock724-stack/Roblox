@@ -242,6 +242,12 @@ export function listVersions(gameId, { limit = 30 } = {}) {
   return all('SELECT * FROM game_versions WHERE game_id = ? ORDER BY version_number DESC LIMIT ?', [gameId, limit]);
 }
 
+/** Most recently created version (draft or published) — used when loading a project to edit. */
+export function latestVersion(gameId) {
+  const row = get('SELECT * FROM game_versions WHERE game_id = ? ORDER BY version_number DESC LIMIT 1', [gameId]);
+  return row ?? null;
+}
+
 export function currentVersion(gameId) {
   const game = get('SELECT current_version_id FROM games WHERE id = ?', [gameId]);
   if (!game?.current_version_id) return null;

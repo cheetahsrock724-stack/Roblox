@@ -210,7 +210,7 @@ export function postDirectMessage(fromUserId, toUserId, body, { filteredBody = n
        VALUES (?, ?, ?, ?, 'direct', ?, ?)`,
       [id, thread.id, fromUserId, toUserId, String(body).slice(0, 2000), filteredBody],
     );
-    run('UPDATE message_threads SET updated_at = datetime("now") WHERE id = ?', [thread.id]);
+    run('UPDATE message_threads SET updated_at = datetime(\'now\') WHERE id = ?', [thread.id]);
     return get('SELECT * FROM messages WHERE id = ?', [id]);
   });
 }
@@ -241,12 +241,12 @@ export function listThreads(userId, { limit = 40 } = {}) {
 }
 
 export function markThreadRead(threadId, userId) {
-  run('UPDATE thread_participants SET last_read_at = datetime("now") WHERE thread_id = ? AND user_id = ?', [
+  run('UPDATE thread_participants SET last_read_at = datetime(\'now\') WHERE thread_id = ? AND user_id = ?', [
     threadId,
     userId,
   ]);
   run(
-    'UPDATE messages SET read_at = datetime("now") WHERE thread_id = ? AND recipient_id = ? AND read_at IS NULL',
+    'UPDATE messages SET read_at = datetime(\'now\') WHERE thread_id = ? AND recipient_id = ? AND read_at IS NULL',
     [threadId, userId],
   );
 }

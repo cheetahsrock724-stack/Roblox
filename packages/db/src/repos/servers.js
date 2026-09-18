@@ -3,6 +3,7 @@ import { all, get, run, transaction } from '../db.js';
 import { ids } from '@kinetiq/shared';
 
 export function registerServer({
+  id = null,
   gameId,
   versionId,
   region = 'local',
@@ -13,13 +14,13 @@ export function registerServer({
   joinPath = null,
   metadata = {},
 }) {
-  const id = ids.realm();
+  const serverId = id ?? ids.realm();
   run(
     `INSERT INTO game_servers (id, game_id, version_id, region, host, port, max_players, private_server_id, join_path, status, metadata)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?)`,
-    [id, gameId, versionId, region, host, port, maxPlayers, privateServerId, joinPath, JSON.stringify(metadata ?? {})],
+    [serverId, gameId, versionId, region, host, port, maxPlayers, privateServerId, joinPath, JSON.stringify(metadata ?? {})],
   );
-  return getServer(id);
+  return getServer(serverId);
 }
 
 export function getServer(id) {

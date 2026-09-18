@@ -30,7 +30,7 @@ export function sessionUser(sessionId) {
 }
 
 export function touchSession(sessionId) {
-  run('UPDATE sessions SET last_used_at = datetime("now") WHERE id = ?', [sessionId]);
+  run('UPDATE sessions SET last_used_at = datetime(\'now\') WHERE id = ?', [sessionId]);
 }
 
 /** Rotates the refresh token; the old token is invalidated immediately (theft detection). */
@@ -42,7 +42,7 @@ export function rotateRefreshToken(sessionId, presentedRefreshToken, { ip = '', 
     if (Date.parse(`${session.expires_at.replace(' ', 'T')}Z`) < Date.now()) return { ok: false, reason: 'expired' };
     if (session.refresh_hash !== sha256(String(presentedRefreshToken))) {
       // Presented a stale/incorrect refresh token: assume compromise and kill the session.
-      run('UPDATE sessions SET revoked_at = datetime("now") WHERE id = ?', [sessionId]);
+      run('UPDATE sessions SET revoked_at = datetime(\'now\') WHERE id = ?', [sessionId]);
       return { ok: false, reason: 'mismatch' };
     }
     const next = token(32);
@@ -58,14 +58,14 @@ export function rotateRefreshToken(sessionId, presentedRefreshToken, { ip = '', 
 }
 
 export function revokeSession(sessionId) {
-  run('UPDATE sessions SET revoked_at = datetime("now") WHERE id = ?', [sessionId]);
+  run('UPDATE sessions SET revoked_at = datetime(\'now\') WHERE id = ?', [sessionId]);
 }
 
 export function revokeAllSessions(userId, { exceptSessionId = null } = {}) {
   if (exceptSessionId) {
-    run('UPDATE sessions SET revoked_at = datetime("now") WHERE user_id = ? AND id != ?', [userId, exceptSessionId]);
+    run('UPDATE sessions SET revoked_at = datetime(\'now\') WHERE user_id = ? AND id != ?', [userId, exceptSessionId]);
   } else {
-    run('UPDATE sessions SET revoked_at = datetime("now") WHERE user_id = ?', [userId]);
+    run('UPDATE sessions SET revoked_at = datetime(\'now\') WHERE user_id = ?', [userId]);
   }
 }
 
@@ -105,7 +105,7 @@ export function consumePasswordReset(rawToken) {
       [sha256(String(rawToken))],
     );
     if (!row) return null;
-    run('UPDATE password_resets SET used_at = datetime("now") WHERE id = ?', [row.id]);
+    run('UPDATE password_resets SET used_at = datetime(\'now\') WHERE id = ?', [row.id]);
     return row;
   });
 }

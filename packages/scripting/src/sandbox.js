@@ -174,10 +174,13 @@ export class ScriptHost {
   }
 
   wrapPlayer(player) {
+    if (player instanceof ScriptPlayer) return player;
+    if (!player) return undefined;
     return new ScriptPlayer(player, this);
   }
 
   wrapCharacter(character) {
+    if (character instanceof ScriptCharacter) return character;
     if (!character) return undefined;
     let wrapper = this.characterWrappers.get(character.playerId);
     if (!wrapper) {
@@ -239,7 +242,8 @@ export class ScriptHost {
       // Engine events are bridged through one shared subscription.
       if (this.world.events.signals.has(eventName) || true) {
         this.world.events.on(eventName, (...args) => {
-          const payload = args.length === 1 ? args[0] : args;
+          const raw = args.length === 1 ? args[0] : args;
+          const payload = host.wrapEventPayload(eventName, raw);
           for (const listener of [...listeners]) {
             try {
               const result = listener(payload);
@@ -266,6 +270,9 @@ export class ScriptHost {
           });
           return handle;
         },
+        connect_(fn) {
+          return bridge.connect(fn);
+        },
         wait: (timeoutSeconds = 5) =>
           new Promise((resolve) => {
             const handle = bridge.connect((payload) => {
@@ -274,10 +281,56 @@ export class ScriptHost {
             });
             if (timeoutSeconds) setTimeout(() => handle.disconnect(), timeoutSeconds * 1000).unref?.();
           }),
+        // PascalCase aliases so `signal:Connect(fn)` reads naturally in scripts.
+        get Connect() {
+          return (fn) => bridge.connect(fn);
+        },
+        get Once() {
+          return (fn) => bridge.once(fn);
+        },
+        get Wait() {
+          return () => bridge.wait();
+        },
+        get Fire() {
+          return (...args) => bridge.fire?.(...args);
+        },
       };
       this.engineSignals.set(eventName, bridge);
     }
     return bridge;
+  }
+
+  /**
+   * Converts engine event payloads into script-friendly handles: scripts connected through
+   * `Players.playerJoined:Connect(...)` receive a player handle rather than a plain record.
+   */
+  wrapEventPayload(eventName, payload) {
+    if (!payload || typeof payload !== 'object') return payload;
+    if (payload instanceof ScriptPlayer || payload instanceof ScriptCharacter || payload instanceof ScriptInstance) {
+      return payload;
+    }
+    if (typeof payload.getProperty === 'function' && typeof payload.id === 'string' && payload.className) {
+      return this.wrap(payload); // something that is already an engine Instance
+    }
+    switch (eventName) {
+      case 'playerJoined':
+      case 'playerLeft':
+        return this.wrapPlayer(payload);
+      case 'characterSpawned':
+        return this.wrapCharacter(payload.character ?? payload);
+      case 'characterRemoved':
+        return this.wrapCharacter(payload.character ?? payload);
+      case 'objectTouched':
+      case 'interacted':
+        return {
+          instance: payload.instance ? this.wrap(payload.instance) : undefined,
+          trigger: payload.trigger ? this.wrap(payload.trigger) : undefined,
+          playerId: payload.playerId ?? undefined,
+          player: payload.playerId ? this.wrapPlayer({ id: payload.playerId, username: payload.playerId, displayName: payload.playerId }) : undefined,
+        };
+      default:
+        return payload;
+    }
   }
 
   connectInstanceEvent(instance, event, fn) {
@@ -317,24 +370,24 @@ export class ScriptHost {
     const remote = {
       name,
       // server side
-      fireClient(_, playerId, ...args) {
+      fireClient(playerId, ...args) {
         host.context.sendToClient?.(String(playerId), name, args.map(unwrapDeep));
         return true;
       },
-      fireAllClients(_, ...args) {
+      fireAllClients(...args) {
         host.context.sendToAllClients?.(name, args.map(unwrapDeep));
         return true;
       },
-      onServerEvent(_, fn) {
+      onServerEvent(fn) {
         serverHandlers.add(fn);
         return { disconnect: () => serverHandlers.delete(fn) };
       },
-      onClientEvent(_, fn) {
+      onClientEvent(fn) {
         clientHandlers.add(fn);
         return { disconnect: () => clientHandlers.delete(fn) };
       },
       // client side
-      fireServer(_, ...args) {
+      fireServer(...args) {
         host.context.sendToServer?.(name, args.map(unwrapDeep));
         return true;
       },
@@ -376,8 +429,8 @@ export class ScriptHost {
 
   emitServerRemote(name, playerId, args) {
     const remote = this.remotes.get(name);
+    // A client may fire any remote name it likes; names no script listens on are ignored.
     if (remote) remote.__emitServer(playerId, args);
-    else this.pushError(`remote:${name}`, 'Remote was not registered before use');
   }
 
   /** ------------------------------------------------------------ UI helpers */

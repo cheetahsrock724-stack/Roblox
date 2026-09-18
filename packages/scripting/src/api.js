@@ -26,6 +26,11 @@ export class ScriptInstance {
     Object.defineProperty(this, '__host', { value: host, enumerable: false, writable: false });
   }
 
+  /** Every wrapper answers an explicit tostring so scripts never see host internals. */
+  get kind() {
+    return 'instance';
+  }
+
   get name_() {
     return this.__instance.getName();
   }
@@ -153,6 +158,10 @@ export class ScriptPlayer {
     Object.defineProperty(this, '__player', { value: player, enumerable: false, writable: false });
     Object.defineProperty(this, '__host', { value: host, enumerable: false, writable: false });
   }
+
+  get kind() {
+    return 'player';
+  }
   get id() {
     return this.__player.id;
   }
@@ -188,6 +197,10 @@ export class ScriptCharacter {
   constructor(character, host) {
     Object.defineProperty(this, '__character', { value: character, enumerable: false, writable: false });
     Object.defineProperty(this, '__host', { value: host, enumerable: false, writable: false });
+  }
+
+  get kind() {
+    return 'character';
   }
   get health() {
     return this.__character.health;
@@ -253,8 +266,12 @@ export class ScriptCharacter {
 /** Result of World:raycast — a stable object shape rather than an ad-hoc literal. */
 export class ScriptRaycastResult {
   constructor(instance, hit) {
-    Object.defineProperty(this, '_instance', { value: instance, enumerable: true });
-    Object.defineProperty(this, '_hit', { value: hit, enumerable: false });
+    Object.defineProperty(this, '_instance', { value: instance, enumerable: false, writable: false });
+    Object.defineProperty(this, '_hit', { value: hit, enumerable: false, writable: false });
+  }
+
+  get kind() {
+    return 'raycast';
   }
   get instance() {
     return this._instance;

@@ -179,12 +179,16 @@ export class Character {
   }
 
   /** Apply movement input for one tick. `direction` is in character-local space (-1..1). */
-  move(direction, { run = false, deltaSeconds = 1 / 60 } = {}) {
+  move(direction, { run = false, deltaSeconds = 1 / 60, facing = null } = {}) {
     if (this.state === 'dead' || this.state === 'sitting') return;
     const body = this.body;
     if (!body) return;
     const speed = run ? this.runSpeed : this.walkSpeed;
-    // Convert local direction to world space using facing angle.
+    // The controlling authority (server, or the local player when client-authoritative for
+    // presentation) may pin the facing angle; otherwise it follows the movement direction.
+    const useFacing = facing === null || facing === undefined ? null : Number(facing);
+    if (useFacing !== null && Number.isFinite(useFacing)) this.facing = useFacing;
+    // Convert local direction to world space using the facing angle.
     const sin = Math.sin(this.facing);
     const cos = Math.cos(this.facing);
     const forward = { x: -sin, z: -cos };
@@ -206,7 +210,7 @@ export class Character {
     const horizontal = Math.hypot(body.velocity.x, body.velocity.z);
     this.moving = magnitude > 0.05;
     this.running = run && this.moving;
-    if (this.moving) {
+    if (this.moving && useFacing === null) {
       this.facing = Math.atan2(-worldX, -worldZ);
     }
     if (this.state !== 'jumping' && this.state !== 'falling' && this.state !== 'climbing') {
@@ -323,11 +327,13 @@ export class Character {
 
   /** Compact state for replication (sent ~20x/second). */
   snapshot() {
+    const position = this.position;
+    const velocity = this.velocity;
     return {
       id: this.playerId,
-      position: round(this.position),
-      facing: Math.round(this.facing * 1000) / 1000,
-      velocity: { x: round(this.velocity.x), y: round(this.velocity.y), z: round(this.velocity.z) },
+      position: { x: round(position.x), y: round(position.y), z: round(position.z) },
+      facing: round(this.facing),
+      velocity: { x: round(velocity.x ?? 0), y: round(velocity.y ?? 0), z: round(velocity.z ?? 0) },
       state: this.state,
       health: this.health,
       moving: this.moving,

@@ -1,6 +1,6 @@
 /** Communities: groups, roles, members and wall posts. */
 import { all, get, run, transaction } from '../db.js';
-import { ids, slugify, GROUP_PERMISSIONS, ForbiddenError } from '@kinetiq/shared';
+import { ids, GROUP_PERMISSIONS, ForbiddenError } from '@kinetiq/shared';
 
 function slugifyName(name) {
   return String(name)
@@ -155,5 +155,3 @@ export function deletePost(postId, userId, isGroupAdmin = false) {
   run('DELETE FROM group_posts WHERE id = ?', [postId]);
   return true;
 }
-
-export { slugify };

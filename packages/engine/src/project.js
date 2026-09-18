@@ -32,7 +32,7 @@ export function createEmptyProject({ name = 'Untitled Game', ownerId = null, own
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },
-    world: null,
+    world: starterWorld(name),
     scripts: [],
     assets: [],
     config: defaultConfig(),
@@ -50,6 +50,34 @@ export function createEmptyProject({ name = 'Untitled Game', ownerId = null, own
     },
   };
   return project;
+}
+
+/**
+ * A brand new project opens on a simple, playable baseplate: a floor, a spawn point and neutral
+ * lighting. Creators immediately have somewhere to walk, and publishing an untouched project
+ * still produces a valid, joinable game.
+ */
+export function starterWorld(name = 'Untitled Game') {
+  const world = new World({ name });
+  world.ensureServices();
+  world.create('Part', {
+    name: 'Baseplate',
+    size: { x: 128, y: 4, z: 128 },
+    position: { x: 0, y: -2, z: 0 },
+    color: '#3c4a63',
+    material: 'concrete',
+    anchored: true,
+  });
+  world.create('Part', {
+    name: 'SpawnPad',
+    size: { x: 12, y: 1, z: 12 },
+    position: { x: 0, y: 0.5, z: 0 },
+    color: '#3d5afe',
+    material: 'neon',
+    anchored: true,
+  });
+  world.create('SpawnPoint', { name: 'Spawn', position: { x: 0, y: 4, z: 0 } });
+  return serializeWorld(world, { includeChunks: true, chunkSize: 128 });
 }
 
 export function defaultConfig() {
@@ -87,7 +115,9 @@ export function collectScripts(world) {
     .findByClass('Script')
     .map((script) => ({
       id: script.id,
-      name: `${script.getName()}.lua`,
+      // Scripts are addressed by their instance name; the `.lua` suffix is only added when the
+      // creator did not include one (avoids `Thing.lua.lua`).
+      name: /\.lua$/i.test(script.getName()) ? script.getName() : `${script.getName()}.lua`,
       kind: script.getProperty('kind'),
       source: script.getProperty('source'),
       runOnLoad: script.getProperty('runOnLoad'),
@@ -99,6 +129,58 @@ export function collectScripts(world) {
           : 'Scripts',
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Removes Script instances (and their source) from a serialized scene.
+ *
+ * Server script sources must never reach a player's machine: the release a client downloads
+ * contains the world without scripts plus only the *client* scripts it is allowed to run. The
+ * realm re-inserts script instances from the bundle when it loads the game.
+ */
+export function stripScriptsFromScene(scene) {
+  if (!scene) return scene;
+  const strip = (nodes) =>
+    (nodes ?? [])
+      .filter((node) => node.className !== 'Script')
+      .map((node) => (node.children?.length ? { ...node, children: strip(node.children) } : node));
+  const stripped = { ...scene };
+  if (stripped.chunks && typeof stripped.chunks === 'object') {
+    stripped.chunks = Object.fromEntries(
+      Object.entries(stripped.chunks).map(([id, chunk]) => [id, { ...chunk, roots: strip(chunk.roots) }]),
+    );
+  }
+  if (Array.isArray(stripped.root)) stripped.root = strip(stripped.root);
+  return stripped;
+}
+
+/** Re-creates Script instances inside a live world from a version bundle's script list. */
+export function insertScriptsIntoWorld(world, scripts = []) {
+  const folderFor = (kind) => {
+    const name = kind === 'client' ? 'ClientScripts' : kind === 'module' ? 'SharedStorage' : 'ServerScripts';
+    let folder = world.root.findFirstChild(name);
+    if (!folder) folder = world.create('Folder', { name, parent: world.root });
+    return folder;
+  };
+  const created = [];
+  for (const entry of scripts) {
+    if (!entry?.source) continue;
+    const parent = folderFor(entry.kind ?? 'server');
+    const existing = world.findByClass('Script').find((script) => script.id === entry.id || script.getName() === entry.name);
+    if (existing) continue;
+    created.push(
+      world.create('Script', {
+        id: entry.id,
+        name: entry.name,
+        source: entry.source,
+        kind: entry.kind ?? 'server',
+        runOnLoad: entry.runOnLoad !== false,
+        disabled: Boolean(entry.disabled),
+        parent,
+      }),
+    );
+  }
+  return created;
 }
 
 export function applyScriptsToWorld(world, scripts = []) {
@@ -196,7 +278,8 @@ export function buildVersionBundle(project, {
     contentHash,
     metadata: project.metadata,
     config: project.config,
-    world: project.world,
+    // The scene inside a release never contains script sources (see stripScriptsFromScene).
+    world: stripScriptsFromScene(project.world),
     scripts: project.scripts,
     assets: project.assets ?? [],
     stats: projectStats(project),
@@ -220,6 +303,185 @@ export function validateBundle(bundle) {
 }
 
 /** Migration hook so old projects keep loading as the format evolves. */
+/**
+ * The original project file format. A project on disk is a directory:
+ *
+ *   project.json    identity, version and settings
+ *   world.scene     the serialized scene graph (chunked)
+ *   scripts/*.lua   one file per script (server / client / module)
+ *   assets/manifest.json
+ *   config/game.json
+ *   metadata.json
+ *
+ * The same structure is used for the editor's save format, for `.kqproj` export/import and for
+ * building immutable version bundles at publish time.
+ */
+export function createProject({ name = 'Untitled Game', ownerId = null, ownerName = null, config = {}, metadata = {} } = {}) {
+  const project = createEmptyProject({ name, ownerId, ownerName });
+  project.project.id = `proj_${contentHash({ name, ownerId, at: Date.now() }).slice(0, 12)}`;
+  project.config = { ...project.config, ...config };
+  project.metadata = { ...project.metadata, ...metadata, name };
+  return project;
+}
+
+function scriptFileName(script) {
+  const base = slugifyName(script.name ?? 'script');
+  const hasLua = /\.lua$/i.test(base);
+  const kind = script.kind === 'module' ? 'module' : script.kind === 'client' ? 'client' : 'server';
+  return `${kind}/${hasLua ? base : `${base}.lua`}`;
+}
+
+function slugifyName(value) {
+  return String(value)
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64) || 'script';
+}
+
+/** Serialises a project into the on-disk file set: [{ path, content }]. */
+export function exportProjectFiles(project) {
+  const files = [];
+  files.push({
+    path: 'project.json',
+    content: JSON.stringify(
+      {
+        format: project.format ?? PROJECT_FORMAT,
+        version: project.version ?? PROJECT_VERSION,
+        project: project.project ?? {},
+      },
+      null,
+      2,
+    ),
+  });
+  files.push({ path: 'world.scene', content: JSON.stringify(project.world ?? starterWorld(), null, 1) });
+  files.push({ path: 'metadata.json', content: JSON.stringify(project.metadata ?? {}, null, 2) });
+  files.push({ path: 'config/game.json', content: JSON.stringify(project.config ?? defaultConfig(), null, 2) });
+  files.push({
+    path: 'assets/manifest.json',
+    content: JSON.stringify({ assets: project.assets ?? [] }, null, 2),
+  });
+  for (const script of project.scripts ?? []) {
+    files.push({
+      path: `scripts/${scriptFileName(script)}`,
+      content: `-- ${script.name ?? 'script'} (${script.kind ?? 'server'})\n${script.source ?? ''}`,
+    });
+  }
+  return files;
+}
+
+/** Inverse of exportProjectFiles. */
+export function importProjectFiles(files = []) {
+  const byPath = new Map(files.map((file) => [String(file.path).replace(/^\/+/, ''), file.content]));
+  const projectFile = safeParse(byPath.get('project.json'), {});
+  const project = createEmptyProject({
+    name: projectFile.project?.name ?? 'Untitled Game',
+    ownerId: projectFile.project?.ownerId ?? null,
+    ownerName: projectFile.project?.ownerName ?? null,
+  });
+  project.format = projectFile.format ?? PROJECT_FORMAT;
+  project.version = projectFile.version ?? PROJECT_VERSION;
+  project.project = { ...project.project, ...(projectFile.project ?? {}) };
+  project.world = safeParse(byPath.get('world.scene'), null) ?? starterWorld(project.project.name);
+  project.metadata = safeParse(byPath.get('metadata.json'), project.metadata) ?? project.metadata;
+  project.config = safeParse(byPath.get('config/game.json'), project.config) ?? project.config;
+  project.assets = safeParse(byPath.get('assets/manifest.json'), { assets: [] })?.assets ?? [];
+  project.scripts = [];
+  for (const [filePath, content] of byPath) {
+    const match = /^scripts\/(server|client|module)\/(.+?\.lua)$/i.exec(filePath);
+    if (!match) continue;
+    const [, kind, fileName] = match;
+    project.scripts.push({
+      id: `scr_${contentHash({ fileName, source: content }).slice(0, 10)}`,
+      name: fileName,
+      kind,
+      source: String(content).replace(/^--[^\n]*\n/, ''),
+      runOnLoad: true,
+      disabled: false,
+      path: kind === 'module' ? 'SharedStorage' : kind === 'server' ? 'ServerScripts' : 'ClientScripts',
+      folder: kind === 'module' ? 'SharedStorage' : kind === 'server' ? 'ServerScripts' : 'ClientScripts',
+    });
+  }
+  return project;
+}
+
+/** Writes a project directory to disk (used by the CLI, the editor and publishing tools). */
+export function saveProject(project, directory) {
+  const fs = requireNodeFs();
+  const path = requireNodePath();
+  const files = exportProjectFiles(project);
+  for (const file of files) {
+    const target = path.join(directory, file.path);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, file.content);
+  }
+  return { directory, files: files.map((file) => file.path) };
+}
+
+/** Reads a project directory from disk. */
+export function loadProject(directory) {
+  const fs = requireNodeFs();
+  const path = requireNodePath();
+  const files = [];
+  const walk = (dir, prefix = '') => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(full, relative);
+      else files.push({ path: relative, content: fs.readFileSync(full, 'utf8') });
+    }
+  };
+  walk(directory);
+  return importProjectFiles(files);
+}
+
+/**
+ * Builds an immutable release bundle for a project. Content hashes are stable for identical
+ * content, and the returned bundle is a deep copy: published versions can never be mutated.
+ */
+export function publishProject(project, { versionNumber = 1, publishedBy = null, changelog = '' } = {}) {
+  const bundle = buildVersionBundle(project, { versionNumber, publishedBy, changelog });
+  const contentHash = projectContentHash(project);
+  bundle.contentHash = contentHash;
+  return {
+    versionNumber,
+    contentHash,
+    changelog,
+    publishedBy,
+    publishedAt: new Date().toISOString(),
+    bundle: JSON.parse(JSON.stringify(bundle)),
+    stats: projectStats(project),
+  };
+}
+
+function safeParse(text, fallback) {
+  if (text === undefined || text === null) return fallback;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}
+
+let nodeFs = null;
+let nodePath = null;
+
+function requireNodeFs() {
+  if (!nodeFs) throw new Error('Project file I/O is only available on the server and in the editor.');
+  return nodeFs;
+}
+
+function requireNodePath() {
+  if (!nodePath) throw new Error('Project file I/O is only available on the server and in the editor.');
+  return nodePath;
+}
+
+/** Hosts that need disk I/O register Node's fs/path here (keeps this module browser-safe). */
+export function installProjectFileSystem(fsModule, pathModule) {
+  nodeFs = fsModule;
+  nodePath = pathModule;
+}
+
 export function migrateProject(project) {
   if (!project?.format) return project;
   if (project.format !== PROJECT_FORMAT) return project;
@@ -243,3 +505,13 @@ export default {
   projectContentHash,
   projectStats,
 };
+
+// Wire up disk I/O automatically on Node hosts (the browser never executes this branch).
+if (typeof process !== 'undefined' && process.versions?.node) {
+  try {
+    const [fsModule, pathModule] = await Promise.all([import('node:fs'), import('node:path')]);
+    installProjectFileSystem(fsModule, pathModule);
+  } catch {
+    /* disk I/O unavailable — the in-memory project functions still work */
+  }
+}
