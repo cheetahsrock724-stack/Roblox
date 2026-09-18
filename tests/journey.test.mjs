@@ -151,7 +151,8 @@ test('creator publishes a game that a second player can join and play', async (t
   assert.equal(testClient.state.welcome.mode, 'playtest');
 
   // Server script ran against the live test server.
-  await testClient.waitFor((state) => state.logs.some((log) => log.message?.includes('journey script loaded')), {
+  await testClient.waitFor(() => testClient.allLogs().some((log) => log.message?.includes('journey script loaded')), {
+    timeout: 3000,
     label: 'play-test script load log',
   });
   await playtestStop(playtest.json.serverId);
@@ -179,7 +180,9 @@ test('creator publishes a game that a second player can join and play', async (t
   const playerIdB = clientB.state.welcome.player.id;
   assert.notEqual(playerIdA, playerIdB);
   assert.ok(clientA.state.welcome.spawn.position, 'welcome frame carries a spawn position');
-  assert.ok(Array.isArray(clientA.state.welcome.world?.chunks), 'welcome ships world chunks');
+  assert.ok(Array.isArray(clientA.state.welcome.chunks) && clientA.state.welcome.chunks.length > 0, 'welcome ships world chunk ids');
+  assert.ok(clientA.state.welcome.clientScripts?.some((script) => script.name.startsWith('JourneyHud')), 'welcome ships client scripts');
+  assert.ok((clientA.state.welcome.logs ?? []).some((log) => log.message?.includes('journey script loaded')), 'welcome replays script logs');
 
   // Both players see each other.
   await clientA.waitFor((state) => state.snapshots.some((snap) => (snap.p ?? []).some((row) => row[0] === playerIdB)), {
@@ -190,12 +193,12 @@ test('creator publishes a game that a second player can join and play', async (t
   });
 
   // ---------------------------------------------------------------- movement replicates
+  const startRow = clientB.snapshotFor(playerIdA);
+  assert.ok(startRow, 'client B has a snapshot row for A');
   for (let index = 0; index < 40; index += 1) {
     clientA.input({ moveZ: -1, run: true, sequence: index + 1 });
     await sleep(25);
   }
-  const startRow = clientB.snapshotFor(playerIdA);
-  assert.ok(startRow, 'client B has a snapshot row for A');
   await clientB.waitFor(
     (state) => {
       const row = connection_lastRow(state, playerIdA);
@@ -205,9 +208,10 @@ test('creator publishes a game that a second player can join and play', async (t
   );
 
   // ---------------------------------------------------------------- game logic + chat
-  await clientA.waitFor((state) => state.logs.some((log) => log.message?.includes('joined the journey test')), {
-    label: 'playerJoined script log',
-  });
+  await clientA.waitFor(
+    () => clientA.allLogs().some((log) => log.message?.includes('joined the journey test')),
+    { label: 'playerJoined script log' },
+  );
   clientA.chat('hello from the journey test');
   await clientB.waitFor((state) => state.chat.some((frame) => frame.text?.includes('hello from the journey test')), {
     label: 'chat replication',
@@ -231,9 +235,12 @@ test('creator publishes a game that a second player can join and play', async (t
 
   const versions = await creator.get(`/api/creator/projects/${gameId}/versions`);
   assert.equal(versions.status, 200);
-  assert.ok(versions.json.versions.length >= 2, 'version history preserved');
-  const v1 = versions.json.versions.find((version) => version.versionNumber === 1);
-  assert.ok(v1 && v1.published, 'older version still exists after publishing a new one');
+  assert.ok(versions.json.versions.length >= 3, `version history preserved (${versions.json.versions.length} versions)`);
+  const publishedVersions = versions.json.versions.filter((version) => version.published);
+  assert.ok(publishedVersions.length >= 2, 'earlier published versions stay in the history');
+  const stillLive = publishedVersions.find((version) => version.id === firstVersion.id);
+  assert.ok(stillLive, 'the first published version row is untouched by later publishes');
+  assert.equal(stillLive.contentHash, firstVersion.contentHash, 'published versions are immutable');
 
   const refreshed = await player.get(`/api/games/${gameId}`);
   assert.ok(refreshed.json.game.currentVersion >= 2, 'website shows the new version');

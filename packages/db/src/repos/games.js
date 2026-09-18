@@ -281,7 +281,9 @@ export function replaceScripts(versionId, gameId, scripts = []) {
         `INSERT INTO game_scripts (id, version_id, game_id, name, kind, source, run_on_load)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
-          script.id ?? `scr_${hashString(`${versionId}:${script.name}`).toString(36)}`,
+          // Script rows are per version: the world's script ids are stable across saves, so the
+          // row id must be scoped to the version to keep history intact (and stay unique).
+          scriptRowId(versionId, script),
           versionId,
           gameId,
           script.name,
@@ -292,6 +294,11 @@ export function replaceScripts(versionId, gameId, scripts = []) {
       );
     }
   });
+}
+
+/** Deterministic, version-scoped script row id. */
+function scriptRowId(versionId, script) {
+  return `scr_${hashString(`${versionId}:${script.name ?? script.id}`).toString(36)}`;
 }
 
 export function listScripts(versionId) {

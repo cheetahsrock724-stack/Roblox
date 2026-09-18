@@ -41,6 +41,7 @@ local native_error = error
 
 local pending_tasks = {}
 local event_handlers = {}
+local bridge_handlers = {}
 local shared_modules = {}
 local clock = 0
 
@@ -134,8 +135,8 @@ function runtime.__kt_tick(dt)
   end
   pending_tasks = remaining
   for i = 1, #ready do run_task(ready[i]) end
-  runtime.__kt_fire('heartbeat', dt or 0)
-  runtime.__kt_fire('update', dt or 0)
+  runtime.__kt_fire('event:heartbeat', dt or 0)
+  runtime.__kt_fire('event:update', dt or 0)
 end
 
 local Task = {}
@@ -184,7 +185,23 @@ runtime.Task = Task
 runtime.wait = Task.wait
 
 -- ---------------------------------------------------------------- events
+--
+-- Host values never cross into Lua directly: JS pushes opaque kqh:<n> handles and the Lua side
+-- resolves them through __kt_resolve. Everything below keeps that boundary intact while giving
+-- scripts ordinary table/object semantics.
 local Events = {}
+
+local function resolve(value)
+  if _type(value) == 'string' and string.sub(value, 1, 4) == 'kqh:' and __kt_resolve then
+    return __kt_resolve(value)
+  end
+  return value
+end
+
+local function resolve_all(args)
+  for i = 1, #args do args[i] = resolve(args[i]) end
+  return args
+end
 
 function runtime.__kt_fire(name, ...)
   local list = event_handlers[name]
@@ -195,17 +212,93 @@ function runtime.__kt_fire(name, ...)
   end
 end
 
-function Events.on(name, fn)
-  if _type(name) ~= 'string' then _error('Events.on expects (string, function)', 2) end
-  if _type(fn) ~= 'function' then _error('Events.on expects (string, function)', 2) end
-  local list = event_handlers[name]
-  if not list then list = {}; event_handlers[name] = list end
+-- Registers a wrapper function for a host event key and returns a disconnect handle.
+function runtime.__kt_bridge(key, fn)
+  local list = bridge_handlers[key]
+  if not list then list = {}; bridge_handlers[key] = list end
   _table.insert(list, fn)
   return {
     disconnect = function()
-      for i = #list, 1, -1 do if list[i] == fn then _table.remove(list, i) end end
+      for i = #list, 1, -1 do
+        if list[i] == fn then _table.remove(list, i) end
+      end
     end,
   }
+end
+
+-- Called from JavaScript with handle ids: resolves payloads, then runs the registered wrappers.
+function runtime.__kt_bridge_emit(key, ...)
+  local args = resolve_all({ ... })
+  local list = bridge_handlers[key]
+  if not list then return end
+  local snapshot = {}
+  for i = 1, #list do snapshot[i] = list[i] end
+  for i = 1, #snapshot do
+    local ok, err = _pcall(snapshot[i], _table.unpack(args))
+    if not ok then runtime.__kt_report_error('event:' .. _tostring(key), err) end
+  end
+end
+
+-- A user-facing signal (Players.playerJoined, Players.playerLeft, ...).
+function runtime.__kt_signal(key)
+  local signal = {}
+  function signal:Connect(fn)
+    if _type(fn) ~= 'function' then _error('Connect expects a function', 2) end
+    return runtime.__kt_bridge(key, function(...) fn(_table.unpack(resolve_all({ ... }))) end)
+  end
+  function signal:Once(fn)
+    local handle
+    handle = signal:Connect(function(...)
+      handle.disconnect()
+      fn(...)
+    end)
+    return handle
+  end
+  function signal:Wait()
+    local waiting = true
+    local args
+    signal:Connect(function(...)
+      args = { ... }
+      waiting = false
+    end)
+    while waiting do Task.wait(0.05) end
+    return _table.unpack(args or {})
+  end
+  signal.connect = signal.Connect
+  signal.once = signal.Once
+  return signal
+end
+
+local remote_cache = {}
+
+-- Remote events and functions (Remote.get("Score")).
+function runtime.__kt_remote(name)
+  local cached = remote_cache[name]
+  if cached then return cached end
+  local remote = { name = name }
+  function remote:fireClient(playerId, ...)
+    return __kt_remote_send(name, _tostring(playerId), { ... })
+  end
+  function remote:fireAllClients(...)
+    return __kt_remote_send(name, '*', { ... })
+  end
+  function remote:fireServer(...)
+    return __kt_remote_send(name, 'server', { ... })
+  end
+  function remote:onClientEvent(fn)
+    return runtime.__kt_bridge('remote:' .. name .. ':client', function(...) fn(_table.unpack(resolve_all({ ... }))) end)
+  end
+  function remote:onServerEvent(fn)
+    return runtime.__kt_bridge('remote:' .. name .. ':server', function(...) fn(_table.unpack(resolve_all({ ... }))) end)
+  end
+  remote_cache[name] = remote
+  return remote
+end
+
+function Events.on(name, fn)
+  if _type(name) ~= 'string' then _error('Events.on expects (string, function)', 2) end
+  if _type(fn) ~= 'function' then _error('Events.on expects (string, function)', 2) end
+  return runtime.__kt_bridge('event:' .. name, function(...) fn(_table.unpack(resolve_all({ ... }))) end)
 end
 
 function Events.once(name, fn)
@@ -218,7 +311,16 @@ function Events.once(name, fn)
 end
 
 function Events.fire(name, ...)
-  runtime.__kt_fire(name, ...)
+  runtime.__kt_fire('event:' .. name, ...)
+end
+
+-- Object events: Events.onInstance(part, "touched", fn).
+function Events.onInstance(instance, eventName, fn)
+  if instance == nil or instance.id == nil then _error('Events.onInstance expects an instance', 2) end
+  local id = instance.id
+  local event = _tostring(eventName)
+  if __kt_watch then __kt_watch(id, event) end
+  return runtime.__kt_bridge('inst:' .. id .. ':' .. event, function(...) fn(_table.unpack(resolve_all({ ... }))) end)
 end
 
 runtime.Events = Events

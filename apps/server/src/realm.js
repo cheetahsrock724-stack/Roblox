@@ -82,6 +82,9 @@ export class RealmServer {
     this.clientScripts = [];
     this.metrics = { ticks: 0, snapshots: 0, joins: 0, leaves: 0, errors: 0, bytesOut: 0, bytesIn: 0 };
     this.lastObjectState = new Map();
+    // Recent script output, replayed to a player when they join so late arrivals (and the editor's
+    // Output panel) still see startup logs and earlier errors.
+    this.logHistory = [];
   }
 
   /** Loads the world and starts the simulation loop. */
@@ -561,15 +564,24 @@ export class RealmServer {
     }));
   }
 
+  /** Records and broadcasts one line of script output. */
+  pushScriptLog(level, message) {
+    const entry = { level, message: String(message ?? '').slice(0, 2000), at: Date.now() };
+    this.logHistory.push(entry);
+    if (this.logHistory.length > 200) this.logHistory.shift();
+    this.metrics.scriptLogs = (this.metrics.scriptLogs ?? 0) + 1;
+    if (level === 'error') this.metrics.errors += 1;
+    this.broadcast({ t: ServerMessage.LOG, level: entry.level, message: entry.message });
+  }
+
   /** ------------------------------------------------------------- script context */
   buildScriptContext() {
     const realm = this;
     return {
       gameId: this.gameId,
       logger: this.log,
-      onLog: (entry) => realm.broadcast({ t: ServerMessage.LOG, level: entry.level, message: entry.message }),
-      onError: (entry) =>
-        realm.broadcast({ t: ServerMessage.LOG, level: 'error', message: `${entry.where}: ${entry.message}` }),
+      onLog: (entry) => realm.pushScriptLog(entry.level ?? 'info', entry.message),
+      onError: (entry) => realm.pushScriptLog('error', `${entry.where}: ${entry.message}`),
       getPlayers: () =>
         [...realm.players.values()].map((player) => ({
           id: player.id,

@@ -123,9 +123,13 @@ export function registerRoutes(router, deps) {
       : [];
 
     const creator = db.users.findById(game.owner_user_id);
+    const liveVersion = game.current_version_id ? db.games.getVersion(game.current_version_id) : null;
     sendJson(ctx.res, 200, {
       game: {
         ...db.games.toGameDetail(game),
+        // Version number of the live release (the id alone is not human readable).
+        currentVersion: liveVersion?.version_number ?? 0,
+        currentVersionContentHash: liveVersion?.content_hash ?? null,
         creator: creator
           ? { id: creator.id, username: creator.username, displayName: creator.display_name, verified: Boolean(creator.is_verified_creator) }
           : null,

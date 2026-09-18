@@ -461,6 +461,8 @@ export class RealmManager {
       serverTime,
       // Client scripts run in the player's own sandbox; the realm only ships their source.
       clientScripts: realm.clientScripts ?? [],
+      // Startup output (and any earlier errors) so the client/editor console is never empty.
+      logs: (realm.logHistory ?? []).slice(-100),
       playerData: player.savedData ?? {},
     });
     for (const other of realm.players.values()) {

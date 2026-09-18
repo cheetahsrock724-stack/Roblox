@@ -197,6 +197,10 @@ export function connectGame(base, connectUrl) {
       }
       return null;
     },
+    /** Log lines seen live plus the ones replayed in the welcome frame. */
+    allLogs() {
+      return [...(state.welcome?.logs ?? []), ...state.logs];
+    },
     async waitFor(predicate, { timeout = 4000, label = 'condition' } = {}) {
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {

@@ -80,10 +80,10 @@ export class ScriptInstance {
     return this.__instance.getDescendants().map((child) => this.__host.wrap(child));
   }
 
-  /** part:on("touched", function(other) ... end) */
-  on(event, fn) {
-    return this.__host.connectInstanceEvent(this.__instance, event, fn);
-  }
+  /**
+   * Object events are subscribed from Lua (`Events.onInstance(part, "touched", fn)`) so that the
+   * wrapper can hand scripts real objects rather than opaque host handles.
+   */
 
   get id() {
     return this.__instance.id;
@@ -411,15 +411,11 @@ export function buildRuntimeApi(context) {
     get count() {
       return context.getPlayers().length;
     },
-    get playerJoined() {
-      return context.signalFor('playerJoined');
-    },
-    get playerLeft() {
-      return context.signalFor('playerLeft');
-    },
+    // `playerJoined` / `playerLeft` signals are added on the Lua side (see sandbox overlay).
   };
 
   // ---------------------------------------------------------------- Remote events
+  // Remotes are constructed in Lua (see the sandbox overlay) so handlers can receive handles.
   api.Remote = {
     get(name) {
       return context.getRemote(String(name));
@@ -523,12 +519,7 @@ export function buildRuntimeApi(context) {
       getMovement() {
         return context.input?.getMovement() ?? { x: 0, y: 0, z: 0 };
       },
-      get keyPressed() {
-        return context.signalFor('inputBegan');
-      },
-      get keyReleased() {
-        return context.signalFor('inputEnded');
-      },
+      // `keyPressed` / `keyReleased` signals are added on the Lua side.
     };
 
     api.Camera = {

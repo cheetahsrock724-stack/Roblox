@@ -260,7 +260,16 @@ export async function createPlatform({ port = config.port, host = config.host } 
     async close() {
       for (const timer of timers) clearInterval(timer);
       await realms.shutdownAll();
-      await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => {
+        server.close(resolve);
+        // Keep-alive HTTP connections and live websockets must not stall shutdown.
+        server.closeIdleConnections?.();
+        const force = setTimeout(() => {
+          server.closeAllConnections?.();
+          resolve();
+        }, 250);
+        force.unref?.();
+      });
       db.closeDatabase();
     },
   };

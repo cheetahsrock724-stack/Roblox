@@ -53,6 +53,11 @@ export class ScriptHost {
     this.instanceSignals = new Map();
     this.engineSignals = new Map();
     this.characterWrappers = new Map();
+    // Values handed to Lua are passed as opaque handle ids and resolved on the Lua side. wasmoon
+    // cannot push JS objects as call arguments, so this keeps the boundary to primitives only.
+    this.handles = new Map();
+    this.handleSeq = 0;
+    this.bridges = new Map();
     this.stats = { loaded: 0, ticks: 0, errors: 0 };
   }
 
@@ -63,10 +68,16 @@ export class ScriptHost {
     const global = this.lua.global;
     await global.set('__kt_host_log', (level, message) => this.pushLog(level, message));
     await global.set('__kt_host_error', (where, message) => this.pushError(where, message));
+    // Host callbacks the prelude captures as locals. They must exist before the prelude runs.
+    await global.set('__kt_resolve', (handle) => this.resolveHandle(handle));
+    await global.set('__kt_watch', (instanceId, eventName) => this.watchInstance(instanceId, eventName));
+    await global.set('__kt_remote_send', (name, target, args) => this.remoteSend(name, target, args));
     await this.lua.doString(PRELUDE);
     await this.lua.doString(LIBRARY_EXPORTS);
     const runtime = global.get('__kt_runtime');
     this.runtimeTable = runtime;
+    // The Lua-side dispatcher: JS calls it with handle ids, Lua resolves and runs the wrappers.
+    this.emitFn = runtime.__kt_bridge_emit;
     this.runtimeHandle = runtime;
     // The prelude exposes its entry points on the runtime table, which scripts cannot reach.
     this.tickFn = runtime.__kt_tick_guarded;
@@ -109,6 +120,91 @@ export class ScriptHost {
       end
     `);
     this.lua.doStringSync('__kt_api_keys = nil');
+    this.installLuaOverlay();
+  }
+
+  /**
+   * Lua-side sugar that must live in Lua so script callbacks receive resolved host objects:
+   * service signals (`Players.playerJoined`), remote events and instance events.
+   */
+  installLuaOverlay() {
+    this.lua.doStringSync(String.raw`
+      do
+        local rt = __kt_runtime
+        local function withSignals(proxy, signals)
+          local wrapper = {}
+          for key, value in pairs(signals) do wrapper[key] = value end
+          return setmetatable(wrapper, {
+            __index = function(self, key)
+              local value = proxy[key]
+              if _type(value) ~= 'function' then return value end
+              return function(...)
+                local args = { ... }
+                if args[1] == self then _table.remove(args, 1) end
+                return value(_table.unpack(args))
+              end
+            end,
+          })
+        end
+
+        if rt.Players then
+          rt.Players = withSignals(rt.Players, {
+            playerJoined = rt.__kt_signal('event:playerJoined'),
+            playerLeft = rt.__kt_signal('event:playerLeft'),
+            characterSpawned = rt.__kt_signal('event:characterSpawned'),
+            characterRemoved = rt.__kt_signal('event:characterRemoved'),
+          })
+        end
+
+        if rt.Input then
+          rt.Input = withSignals(rt.Input, {
+            keyPressed = rt.__kt_signal('event:inputBegan'),
+            keyReleased = rt.__kt_signal('event:inputEnded'),
+          })
+        end
+
+        rt.Remote = {
+          get = function(name) return rt.__kt_remote(_tostring(name)) end,
+          create = function(name) return rt.__kt_remote(_tostring(name)) end,
+        }
+      end
+    `);
+  }
+
+  /** ------------------------------------------------------------- host <-> Lua values */
+
+  /** Registers a host value so Lua can resolve it later. Primitives pass straight through. */
+  registerHandle(value) {
+    if (value === null || value === undefined) return undefined;
+    const type = typeof value;
+    if (type === 'string' || type === 'number' || type === 'boolean') return value;
+    const id = `kqh:${(this.handleSeq += 1)}`;
+    this.handles.set(id, value);
+    if (this.handles.size > 4000) {
+      // Drop the oldest quarter; scripts hold wrapped instances via their own caches.
+      const drop = Math.floor(this.handles.size / 4);
+      let index = 0;
+      for (const key of this.handles.keys()) {
+        this.handles.delete(key);
+        if ((index += 1) >= drop) break;
+      }
+    }
+    return id;
+  }
+
+  resolveHandle(handle) {
+    if (typeof handle !== 'string' || !handle.startsWith('kqh:')) return handle;
+    return this.handles.get(handle);
+  }
+
+  /** Invokes the Lua bridge dispatcher with handle ids (never raw objects). */
+  dispatchBridge(key, ...args) {
+    if (!this.started || typeof this.emitFn !== 'function') return;
+    try {
+      this.emitFn(key, ...args.map((value) => this.registerHandle(value)));
+    } catch (error) {
+      this.pushError(`event:${key}`, error.message ?? String(error));
+    }
   }
 
   buildApiContext() {
@@ -357,6 +453,58 @@ export class ScriptHost {
     };
   }
 
+  /**
+   * Ensures object events (`Events.onInstance(part, "touched", fn)`) are routed to the script that
+   * asked for them. The engine only publishes world-level events, so we filter by instance id.
+   */
+  watchInstance(instanceId, eventName) {
+    const key = `${instanceId}:${eventName}`;
+    this.instanceWatches = this.instanceWatches ?? new Set();
+    if (this.instanceWatches.has(key)) return;
+    this.instanceWatches.add(key);
+    const worldEvent =
+      eventName === 'touched'
+        ? 'objectTouched'
+        : eventName === 'clicked'
+          ? 'buttonClicked'
+          : eventName === 'entered'
+            ? 'regionEntered'
+            : eventName;
+    this.world.events.on(worldEvent, (...args) => {
+      const payload = args.length === 1 ? args[0] : args;
+      const match = (candidate) =>
+        candidate && (candidate.instance?.id === instanceId || candidate.id === instanceId || candidate.targetId === instanceId);
+      if (match(payload)) {
+        this.dispatchBridge(`inst:${instanceId}:${eventName}`, payload.instance ?? payload);
+        return;
+      }
+      if (Array.isArray(payload)) {
+        for (const entry of payload) {
+          if (match(entry)) this.dispatchBridge(`inst:${instanceId}:${eventName}`, entry.instance ?? entry);
+        }
+      }
+    });
+  }
+
+  /**
+   * Called from Lua (`remote:fireClient(...)`, `remote:fireServer(...)`). `args` arrives as a Lua
+   * table and is converted to plain host values.
+   */
+  remoteSend(name, target, args) {
+    const list = Array.isArray(args) ? args.map(unwrapDeep) : [];
+    const key = String(name);
+    if (target === '*') {
+      this.context.sendToAllClients?.(key, list);
+      return true;
+    }
+    if (target === 'server') {
+      this.context.sendToServer?.(key, list);
+      return true;
+    }
+    this.context.sendToClient?.(String(target), key, list);
+    return true;
+  }
+
   /** ------------------------------------------------------------ remotes */
   getRemote(name) {
     return this.createRemote(name);
@@ -421,16 +569,14 @@ export class ScriptHost {
     return remote;
   }
 
-  emitClientRemote(name, args) {
-    const remote = this.remotes.get(name);
-    if (remote) remote.__emitClient(args);
-    else this.pushError(`remote:${name}`, 'Remote was not registered before use');
+  emitClientRemote(name, args = []) {
+    this.dispatchBridge(`remote:${name}:client`, ...(Array.isArray(args) ? args : [args]));
   }
 
-  emitServerRemote(name, playerId, args) {
-    const remote = this.remotes.get(name);
-    // A client may fire any remote name it likes; names no script listens on are ignored.
-    if (remote) remote.__emitServer(playerId, args);
+  emitServerRemote(name, playerId, args = []) {
+    // A client may fire any remote name it likes; names no script listens on are simply ignored.
+    const player = this.context.getPlayers?.().find((entry) => entry.id === playerId) ?? { id: playerId, username: playerId };
+    this.dispatchBridge(`remote:${name}:server`, this.wrapPlayer(player), ...(Array.isArray(args) ? args : [args]));
   }
 
   /** ------------------------------------------------------------ UI helpers */
@@ -547,16 +693,9 @@ export class ScriptHost {
   }
 
   fireEvent(name, ...args) {
-    if (!this.started) return;
-    try {
-      const fire = this.lua.global.get('__kt_runtime');
-      if (fire?.__kt_fire) {
-        const result = fire.__kt_fire(name, ...args.map(toLuaSafe));
-        if (result?.catch) result.catch(() => {});
-      }
-    } catch (error) {
-      this.pushError(`event:${name}`, error.message ?? String(error));
-    }
+    // Scripts receive resolved host objects via the Lua bridge; see dispatchBridge().
+    this.dispatchBridge(`event:${name}`, ...args);
+    return true;
   }
 
   pushLog(level, message) {
